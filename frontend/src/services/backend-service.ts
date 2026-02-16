@@ -1,10 +1,83 @@
 /**
  * Backend API Service
- * 
+ *
  * Service for communicating with your custom backend API
  */
 
 import { API_CONFIG, getApiHeaders } from "../config/api-config";
+
+/** Partner as returned by API */
+export interface Partner {
+  id: string;
+  name: string;
+  type: "Named" | "Tag-based" | "Hybrid";
+  rakebackRate: number;
+  priority: number;
+  status: string;
+  createdBy: string;
+  createdDate: string;
+  walletAddress?: string;
+  memoTag?: string;
+  applyFromDate?: string;
+  payoutAddress?: string;
+  rules?: EligibilityRule[];
+}
+
+/** Payload for creating a partner */
+export interface PartnerCreate {
+  name: string;
+  type: "named" | "tag-based" | "hybrid";
+  rakebackRate: number;
+  priority: number;
+  payoutAddress?: string;
+  walletAddress?: string;
+  walletLabel?: string;
+  memoKeyword?: string;
+  matchType?: string;
+  applyFromDate?: string;
+  applyFromBlock?: number;
+  hybridWallet?: string;
+  hybridWalletLabel?: string;
+  hybridMemo?: string;
+  hybridMatchType?: string;
+}
+
+/** Payload for updating a partner */
+export interface PartnerUpdate {
+  name?: string;
+  rakebackRate?: number;
+  priority?: number;
+  payoutAddress?: string;
+  partnerType?: string;
+}
+
+/** Eligibility rule */
+export interface EligibilityRule {
+  id: string;
+  partnerId: string;
+  type: "wallet" | "memo" | "subnet-filter";
+  config: Record<string, unknown>;
+  appliesFromBlock: number;
+  createdAt: string;
+  createdBy: string;
+}
+
+/** Payload for adding a rule */
+export interface RuleCreate {
+  type: "wallet" | "memo" | "subnet-filter";
+  config: Record<string, unknown>;
+  appliesFromBlock?: number;
+}
+
+/** Rule change audit log entry */
+export interface RuleChangeLogEntry {
+  timestamp: string;
+  user: string;
+  action: string;
+  partner: string;
+  details: string;
+  appliesFromBlock: number;
+}
 
 class BackendService {
   private baseUrl: string;
@@ -44,17 +117,56 @@ class BackendService {
    * Get all partners
    */
   async getPartners() {
-    return this.fetchData(API_CONFIG.backend.endpoints.partners);
+    return this.fetchData<Partner[]>(API_CONFIG.backend.endpoints.partners);
+  }
+
+  /**
+   * Get a single partner with rules
+   */
+  async getPartner(partnerId: string) {
+    return this.fetchData<Partner>(`${API_CONFIG.backend.endpoints.partners}/${partnerId}`);
   }
 
   /**
    * Create a new partner
    */
-  async createPartner(partnerData: any) {
-    return this.fetchData(API_CONFIG.backend.endpoints.partners, {
+  async createPartner(partnerData: PartnerCreate) {
+    return this.fetchData<Partner>(API_CONFIG.backend.endpoints.partners, {
       method: "POST",
       body: JSON.stringify(partnerData),
     });
+  }
+
+  /**
+   * Update a partner
+   */
+  async updatePartner(partnerId: string, updates: Partial<PartnerUpdate>) {
+    return this.fetchData<Partner>(`${API_CONFIG.backend.endpoints.partners}/${partnerId}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  /**
+   * Get rule change audit log
+   */
+  async getRuleChangeLog(limit = 100) {
+    return this.fetchData<RuleChangeLogEntry[]>(
+      `${API_CONFIG.backend.endpoints.partners}/rule-change-log/list?limit=${limit}`
+    );
+  }
+
+  /**
+   * Add a rule to a partner
+   */
+  async addPartnerRule(partnerId: string, rule: RuleCreate) {
+    return this.fetchData<EligibilityRule>(
+      `${API_CONFIG.backend.endpoints.partners}/${partnerId}/rules`,
+      {
+        method: "POST",
+        body: JSON.stringify(rule),
+      }
+    );
   }
 
   /**

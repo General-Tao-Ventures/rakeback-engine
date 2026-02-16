@@ -46,8 +46,10 @@ export const API_CONFIG = {
   },
 
   // Custom Backend API (use VITE_BACKEND_API_URL in .env to override)
+  // In dev, use "" so requests hit same origin and Vite proxies /api to backend (avoids CORS)
   backend: {
-    baseUrl: (import.meta.env?.VITE_BACKEND_API_URL as string) || "http://localhost:8000",
+    baseUrl: (import.meta.env?.VITE_BACKEND_API_URL as string) ||
+      (typeof window !== "undefined" && window.location.port === "5173" ? "" : "http://localhost:8000"),
     endpoints: {
       partners: "/api/partners",
       attributions: "/api/attributions",
