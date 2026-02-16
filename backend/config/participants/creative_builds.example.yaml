@@ -1,0 +1,43 @@
+# Creative Builds Partner Configuration
+# This is an example - copy and adjust for actual partner setup
+
+id: creative_builds
+name: Creative Builds
+type: partner
+
+# Validity period
+effective_from: "2026-01-01"
+effective_to: null  # Active indefinitely
+
+# Payout destination
+payout_address: "5CcreativeBuildsPayoutAddress..."
+
+# How to aggregate rakeback
+# per_wallet: Track each wallet separately
+# lump_sum: Aggregate all into single payout
+aggregation_mode: per_wallet
+
+# Rakeback percentage (0.5 = 50%)
+rakeback_percentage: 0.50
+
+# Rules to identify eligible delegations
+# Multiple rules are combined with OR logic
+matching_rules:
+  rules:
+    # Match specific wallet addresses
+    - type: EXACT_ADDRESS
+      addresses:
+        - "5Ccb_wallet_1..."
+        - "5Ccb_wallet_2..."
+        - "5Ccb_wallet_3..."
+    
+    # Optionally match by delegation type
+    # - type: DELEGATION_TYPE
+    #   delegation_types:
+    #     - subnet_dtao
+    #   subnet_ids:
+    #     - 21
+    #     - 22
+
+# Optional notes
+notes: "Creative Builds partnership - per-wallet tracking required"

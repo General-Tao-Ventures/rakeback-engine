@@ -1,0 +1,13 @@
+# Processing Configuration
+# Copy this file to processing.yaml and adjust as needed
+
+# Ingestion settings
+batch_size: 100  # Blocks per batch
+max_parallel_blocks: 10  # Max concurrent block fetches
+
+# Attribution settings
+proportion_precision: 18  # Decimal places for proportion calculations
+
+# Aggregation schedule (UTC)
+daily_aggregation_hour_utc: 0  # Run daily aggregation at midnight UTC
+monthly_aggregation_day: 1  # Run monthly aggregation on the 1st

@@ -1,0 +1,18 @@
+# Chain RPC Configuration
+# Copy this file to chain.yaml and adjust for your environment
+
+# Bittensor mainnet via official WebSocket (recommended)
+rpc_url: wss://entrypoint-finney.opentensor.ai:443
+
+# Alternative endpoints:
+# rpc_url: wss://bittensor-finney.api.onfinality.io/public-ws
+# rpc_url: ws://localhost:9944  # Local node
+
+# Request settings
+rpc_timeout: 30  # seconds
+retry_attempts: 3
+retry_delay: 1.0  # seconds
+
+# Finality settings
+# Number of blocks to wait before considering a block final
+finality_depth: 6
