@@ -35,6 +35,7 @@ Use **two terminals**.
 
 ### Terminal 1 – Backend API
 
+Ex:
 ```powershell
 cd "c:\Users\-_-\Downloads\Rakeback Engine\backend"
 .\.venv\Scripts\Activate.ps1
@@ -47,6 +48,7 @@ rakeback-api
 
 ### Terminal 2 – Frontend
 
+Ex:
 ```powershell
 cd "c:\Users\-_-\Downloads\Rakeback Engine\frontend"
 npm run dev
