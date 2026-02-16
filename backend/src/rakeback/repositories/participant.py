@@ -31,7 +31,7 @@ class ParticipantRepository(BaseRepository[RakebackParticipant]):
                     )
                 )
             )
-            .order_by(RakebackParticipant.id)
+            .order_by(RakebackParticipant.priority, RakebackParticipant.id)
         )
         return self.session.scalars(stmt).all()
     

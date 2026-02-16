@@ -9,6 +9,7 @@ from rakeback.models.enums import (
     PaymentStatus,
     PeriodType,
     ParticipantType,
+    PartnerType,
     AggregationMode,
     GapType,
     ResolutionStatus,
@@ -21,6 +22,8 @@ from rakeback.models.block_attribution import BlockAttribution
 from rakeback.models.conversion import ConversionEvent, TaoAllocation
 from rakeback.models.ledger import RakebackLedgerEntry
 from rakeback.models.participant import RakebackParticipant
+from rakeback.models.eligibility_rule import EligibilityRule
+from rakeback.models.rule_change_log import RuleChangeLog
 from rakeback.models.processing import ProcessingRun, DataGap
 
 __all__ = [
@@ -33,6 +36,7 @@ __all__ = [
     "PaymentStatus",
     "PeriodType",
     "ParticipantType",
+    "PartnerType",
     "AggregationMode",
     "GapType",
     "ResolutionStatus",
@@ -48,6 +52,8 @@ __all__ = [
     "TaoAllocation",
     "RakebackLedgerEntry",
     "RakebackParticipant",
+    "EligibilityRule",
+    "RuleChangeLog",
     "ProcessingRun",
     "DataGap",
 ]

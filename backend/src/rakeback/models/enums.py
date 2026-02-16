@@ -59,6 +59,14 @@ class ParticipantType(str, Enum):
     SUBNET = "subnet"
 
 
+class PartnerType(str, Enum):
+    """Discovery mechanism for partners (aligns with UI)."""
+    
+    NAMED = "named"
+    TAG_BASED = "tag_based"
+    HYBRID = "hybrid"
+
+
 class AggregationMode(str, Enum):
     """How rakeback should be aggregated for a participant."""
     

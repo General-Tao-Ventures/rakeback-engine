@@ -2,21 +2,25 @@
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     Date,
     DateTime,
     Enum,
     Index,
+    Integer,
     Numeric,
     String,
 )
 from sqlalchemy.dialects.postgresql import JSON
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from rakeback.models.base import Base, utc_now
-from rakeback.models.enums import AggregationMode, ParticipantType
+from rakeback.models.enums import AggregationMode, ParticipantType, PartnerType
+
+if TYPE_CHECKING:
+    from rakeback.models.eligibility_rule import EligibilityRule
 
 
 class RakebackParticipant(Base):
@@ -35,23 +39,28 @@ class RakebackParticipant(Base):
     # Display name
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     
-    # Participant type
+    # Partner discovery type (Named / Tag-based / Hybrid) - aligns with UI
+    partner_type: Mapped[Optional[PartnerType]] = mapped_column(
+        Enum(PartnerType, name="partner_type_enum", create_type=True),
+        nullable=True,
+        default=PartnerType.NAMED
+    )
+    
+    # Priority for conflict resolution (lower = higher priority)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    
+    # Participant type (partner/delegator_group/subnet)
     type: Mapped[ParticipantType] = mapped_column(
         Enum(ParticipantType, name="participant_type_enum", create_type=False),
         nullable=False
     )
     
-    # Matching rules (JSON structure)
-    # Example:
-    # {
-    #   "rules": [
-    #     {"type": "EXACT_ADDRESS", "addresses": ["5Cabc...", "5Cdef..."]},
-    #     {"type": "DELEGATION_TYPE", "delegation_types": ["SUBNET_DTAO"], "subnet_ids": [21, 22]}
-    #   ]
-    # }
+    # Matching rules (JSON) - synced from EligibilityRule entities for engine use
+    # Source of truth is eligibility_rules table; this is cached for RulesEngine
     matching_rules: Mapped[dict] = mapped_column(
         JSON,
-        nullable=False
+        nullable=False,
+        default=lambda: {"rules": []}
     )
     
     # Rakeback percentage (e.g., 0.5000 for 50%)
@@ -89,6 +98,14 @@ class RakebackParticipant(Base):
     
     # Optional notes
     notes: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    
+    # Relationship to rule entities (for CRUD/audit)
+    eligibility_rules: Mapped[list["EligibilityRule"]] = relationship(
+        "EligibilityRule",
+        back_populates="participant",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
     
     __table_args__ = (
         Index("ix_participants_type", "type"),

@@ -44,6 +44,21 @@ def parse_month(month_str: str) -> tuple[int, int]:
         )
 
 
+def _migrate_add_columns(engine):
+    """Add new columns to existing tables (Phase 1 schema evolution)."""
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        try:
+            res = conn.execute(text("PRAGMA table_info(rakeback_participants)"))
+            cols = {row[1] for row in res.fetchall()}
+            if "partner_type" not in cols:
+                conn.execute(text("ALTER TABLE rakeback_participants ADD COLUMN partner_type VARCHAR"))
+            if "priority" not in cols:
+                conn.execute(text("ALTER TABLE rakeback_participants ADD COLUMN priority INTEGER DEFAULT 1"))
+        except Exception as e:
+            console.print(f"[yellow]Migration note: {e}[/yellow]")
+
+
 @app.command()
 def init_db(
     force: bool = typer.Option(False, "--force", "-f", help="Drop and recreate tables")
@@ -51,15 +66,21 @@ def init_db(
     """Initialize the database schema."""
     from rakeback.database import init_database, get_engine
     from rakeback.models import Base
-    
+
+    engine = get_engine()
+
     with console.status("Initializing database..."):
         if force:
-            engine = get_engine()
             Base.metadata.drop_all(engine)
             console.print("[yellow]Dropped existing tables[/yellow]")
-        
+
         init_database()
-    
+        # Run migrations for existing DBs (add new columns)
+        try:
+            _migrate_add_columns(engine)
+        except Exception:
+            pass
+
     console.print("[green]Database initialized successfully[/green]")
 
 

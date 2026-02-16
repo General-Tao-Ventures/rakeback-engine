@@ -218,7 +218,11 @@ class RulesEngine:
                 if not subnets:
                     errors.append(f"Rule {i}: SUBNET has no subnet_ids")
             
-            elif rule_type not in ("RT21_AUTO_DELEGATION", "ALL"):
+            elif rule_type == "RT21_AUTO_DELEGATION":
+                if not rule.get("memo_string"):
+                    errors.append(f"Rule {i}: RT21_AUTO_DELEGATION has no memo_string")
+            
+            elif rule_type != "ALL":
                 errors.append(f"Rule {i}: Unknown rule type '{rule_type}'")
         
         return errors

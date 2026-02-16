@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { StatusBadge, StatusType } from "../components/status-badge";
 import {
   Table,
@@ -39,131 +39,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useBlockchain } from "../../hooks/use-blockchain";
-
-interface Partner {
-  id: string;
-  name: string;
-  type: "Named" | "Tag-based" | "Hybrid";
-  rakebackRate: number;
-  priority: number;
-  status: StatusType;
-  createdBy: string;
-  createdDate: string;
-  walletAddress?: string;
-  memoTag?: string;
-  applyFromDate?: string;
-}
-
-interface EligibilityRule {
-  id: string;
-  partnerId: string;
-  type: "wallet" | "memo" | "subnet-filter";
-  config: any;
-  appliesFromBlock: number;
-  createdAt: string;
-  createdBy: string;
-}
-
-interface RuleChangeLogEntry {
-  timestamp: string;
-  user: string;
-  action: string;
-  partner: string;
-  details: string;
-  appliesFromBlock: number;
-}
-
-const mockPartners: Partner[] = [
-  {
-    id: "partner-creative-builds",
-    name: "Creative Builds",
-    type: "Named",
-    rakebackRate: 15,
-    priority: 1,
-    status: "active",
-    createdBy: "sean@localhost",
-    createdDate: "2025-11-15",
-    walletAddress: "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL",
-  },
-  {
-    id: "partner-talisman",
-    name: "Talisman",
-    type: "Tag-based",
-    rakebackRate: 12,
-    priority: 2,
-    status: "active",
-    createdBy: "sean@localhost",
-    createdDate: "2025-11-20",
-    memoTag: "talisman",
-  },
-];
-
-const mockRules: Record<string, EligibilityRule[]> = {
-  "partner-creative-builds": [
-    {
-      id: "rule-cb-wallet-1",
-      partnerId: "partner-creative-builds",
-      type: "wallet",
-      config: {
-        wallet: "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL",
-        label: "Creative Builds custody wallet",
-      },
-      appliesFromBlock: 4200000,
-      createdAt: "2025-11-15 10:00:00",
-      createdBy: "sean@localhost",
-    },
-  ],
-  "partner-talisman": [
-    {
-      id: "rule-tl-memo-1",
-      partnerId: "partner-talisman",
-      type: "memo",
-      config: {
-        memoString: "talisman",
-        matchType: "contains",
-        extrinsicTypes: ["stake", "unstake", "redelegate"],
-      },
-      appliesFromBlock: 4250000,
-      createdAt: "2025-11-20 14:30:00",
-      createdBy: "sean@localhost",
-    },
-  ],
-};
-
-const initialRuleChangeLog: RuleChangeLogEntry[] = [
-  {
-    timestamp: "2026-01-15 09:23:00",
-    user: "sean@localhost",
-    action: "Updated rakeback rate",
-    partner: "Creative Builds",
-    details: "15% → 15% (no change to rate, priority updated)",
-    appliesFromBlock: 4400000,
-  },
-  {
-    timestamp: "2025-12-01 11:45:00",
-    user: "sean@localhost",
-    action: "Added wallet rule",
-    partner: "Creative Builds",
-    details: "Added wallet: 5CiP...2DjL",
-    appliesFromBlock: 4350000,
-  },
-  {
-    timestamp: "2025-11-20 14:30:00",
-    user: "sean@localhost",
-    action: "Created partner",
-    partner: "Talisman",
-    details: "Tag-based partner with memo matching",
-    appliesFromBlock: 4250000,
-  },
-  {
-    timestamp: "2025-11-15 10:00:00",
-    user: "sean@localhost",
-    action: "Created partner",
-    partner: "Creative Builds",
-    details: "Named partner with custody wallet",
-    appliesFromBlock: 4200000,
-  },
-];
+import {
+  backendService,
+  type Partner,
+  type EligibilityRule,
+  type RuleChangeLogEntry,
+} from "../../services/backend-service";
 
 export default function PartnerManagement() {
   const blockchain = useBlockchain();
@@ -172,8 +53,40 @@ export default function PartnerManagement() {
   const [showAddPartnerDialog, setShowAddPartnerDialog] = useState(false);
   const [newRuleType, setNewRuleType] = useState<string>("wallet");
   const [newPartnerType, setNewPartnerType] = useState<string>("named");
-  const [partners, setPartners] = useState<Partner[]>(mockPartners);
-  const [ruleChangeLog, setRuleChangeLog] = useState<RuleChangeLogEntry[]>(initialRuleChangeLog);
+  // Add Rule form state
+  const [ruleWalletAddress, setRuleWalletAddress] = useState("");
+  const [ruleWalletLabel, setRuleWalletLabel] = useState("");
+  const [ruleMemoString, setRuleMemoString] = useState("");
+  const [ruleMatchType, setRuleMatchType] = useState("contains");
+  const [ruleExtrinsicStake, setRuleExtrinsicStake] = useState(true);
+  const [ruleExtrinsicUnstake, setRuleExtrinsicUnstake] = useState(true);
+  const [ruleExtrinsicRedelegate, setRuleExtrinsicRedelegate] = useState(true);
+  const [ruleSubnets, setRuleSubnets] = useState("");
+  const [ruleFromDate, setRuleFromDate] = useState("");
+  const [ruleFromBlock, setRuleFromBlock] = useState("");
+  const [addingRule, setAddingRule] = useState(false);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [ruleChangeLog, setRuleChangeLog] = useState<RuleChangeLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [partnersData, logData] = await Promise.all([
+          backendService.getPartners(),
+          backendService.getRuleChangeLog(),
+        ]);
+        setPartners(Array.isArray(partnersData) ? partnersData : []);
+        setRuleChangeLog(Array.isArray(logData) ? logData : []);
+      } catch (e) {
+        console.error("Failed to load partners:", e);
+        toast.error("Failed to load partners. Is the backend running?");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   // Form fields for new partner
   const [partnerName, setPartnerName] = useState("");
@@ -190,19 +103,72 @@ export default function PartnerManagement() {
   const [applyFromDate, setApplyFromDate] = useState("");
   const [applyFromBlock, setApplyFromBlock] = useState("");
 
-  // Helper function to add log entry
-  const addLogEntry = (entry: Omit<RuleChangeLogEntry, "timestamp" | "user">) => {
-    const newEntry: RuleChangeLogEntry = {
-      ...entry,
-      timestamp: new Date().toISOString().replace("T", " ").slice(0, 19),
-      user: "sean@localhost", // In production, get from auth context
-    };
-    setRuleChangeLog([newEntry, ...ruleChangeLog]);
-  };
-
   const handleEditRules = (partnerId: string) => {
     setSelectedPartner(partnerId);
     setShowRulesDialog(true);
+    // Reset add-rule form
+    setNewRuleType("wallet");
+    setRuleWalletAddress("");
+    setRuleWalletLabel("");
+    setRuleMemoString("");
+    setRuleMatchType("contains");
+    setRuleExtrinsicStake(true);
+    setRuleExtrinsicUnstake(true);
+    setRuleExtrinsicRedelegate(true);
+    setRuleSubnets("");
+    setRuleFromDate("");
+    setRuleFromBlock("");
+  };
+
+  const handleAddRule = async () => {
+    if (!selectedPartner) return;
+
+    const currentBlock = blockchain.currentBlock || 4527342;
+    const effectiveBlock = ruleFromBlock ? parseInt(ruleFromBlock, 10) : currentBlock + 10;
+
+    let config: Record<string, unknown> = {};
+    if (newRuleType === "wallet") {
+      if (!ruleWalletAddress) {
+        toast.error("Wallet address is required");
+        return;
+      }
+      config = { wallet: ruleWalletAddress, label: ruleWalletLabel };
+    } else if (newRuleType === "memo") {
+      if (!ruleMemoString) {
+        toast.error("Memo string is required");
+        return;
+      }
+      const extrinsicTypes: string[] = [];
+      if (ruleExtrinsicStake) extrinsicTypes.push("stake");
+      if (ruleExtrinsicUnstake) extrinsicTypes.push("unstake");
+      if (ruleExtrinsicRedelegate) extrinsicTypes.push("redelegate");
+      config = { memo_string: ruleMemoString, match_type: ruleMatchType, extrinsic_types: extrinsicTypes };
+    } else if (newRuleType === "subnet") {
+      config = { subnets: ruleSubnets };
+    }
+
+    setAddingRule(true);
+    try {
+      await backendService.addPartnerRule(selectedPartner, {
+        type: newRuleType as "wallet" | "memo" | "subnet-filter",
+        config,
+        appliesFromBlock: effectiveBlock,
+      });
+
+      // Refresh partner data to show new rule
+      const updated = await backendService.getPartner(selectedPartner);
+      setPartners((prev) => prev.map((p) => (p.id === selectedPartner ? updated : p)));
+      const logRes = await backendService.getRuleChangeLog();
+      setRuleChangeLog(Array.isArray(logRes) ? logRes : []);
+
+      toast.success("Rule added successfully");
+      setShowRulesDialog(false);
+    } catch (e) {
+      console.error("Failed to add rule:", e);
+      toast.error("Failed to add rule. Check console for details.");
+    } finally {
+      setAddingRule(false);
+    }
   };
 
   const handleAddPartner = () => {
@@ -223,82 +189,55 @@ export default function PartnerManagement() {
     setApplyFromBlock("");
   };
 
-  const handleSavePartner = () => {
-    // Validate required fields
+  const handleSavePartner = async () => {
     if (!partnerName || !rakebackRate || !priority) {
       toast.error("Please fill in all required fields");
       return;
     }
 
-    // Determine apply from block (use blockchain current block + 10 as default)
     const currentBlock = blockchain.currentBlock || 4527342;
-    const effectiveBlock = applyFromBlock 
-      ? parseInt(applyFromBlock) 
-      : currentBlock + 10;
+    const effectiveBlock = applyFromBlock ? parseInt(applyFromBlock, 10) : currentBlock + 10;
 
-    // Create new partner
-    const newPartner: Partner = {
-      id: `partner-${partnerName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
-      name: partnerName,
-      type:
-        newPartnerType === "named"
-          ? "Named"
-          : newPartnerType === "tag-based"
-          ? "Tag-based"
-          : "Hybrid",
-      rakebackRate: parseFloat(rakebackRate),
-      priority: parseInt(priority),
-      status: "active",
-      createdBy: "sean@localhost",
-      createdDate: new Date().toISOString().split("T")[0],
-      walletAddress: newPartnerType === "named" ? walletAddress : undefined,
-      memoTag: newPartnerType === "tag-based" ? memoKeyword : undefined,
-      applyFromDate: applyFromBlock
-        ? undefined
+    try {
+      const created = await backendService.createPartner({
+        name: partnerName,
+        type: newPartnerType as "named" | "tag-based" | "hybrid",
+        rakebackRate: parseFloat(rakebackRate),
+        priority: parseInt(priority, 10),
+        payoutAddress: "",
+        walletAddress: newPartnerType === "named" ? walletAddress : undefined,
+        walletLabel: newPartnerType === "named" ? walletLabel : undefined,
+        memoKeyword: newPartnerType === "tag-based" ? memoKeyword : undefined,
+        matchType: matchType,
+        applyFromBlock: effectiveBlock,
+        hybridWallet: newPartnerType === "hybrid" ? hybridWallet : undefined,
+        hybridWalletLabel: newPartnerType === "hybrid" ? hybridWalletLabel : undefined,
+        hybridMemo: newPartnerType === "hybrid" ? hybridMemo : undefined,
+        hybridMatchType: newPartnerType === "hybrid" ? hybridMatchType : undefined,
+      });
+
+      setPartners((prev) => (created ? [...prev, created] : prev));
+      const logRes = await backendService.getRuleChangeLog();
+      setRuleChangeLog(Array.isArray(logRes) ? logRes : []);
+
+      const blockInfo = applyFromBlock
+        ? `from block ${applyFromBlock}`
         : applyFromDate
-        ? applyFromDate
-        : undefined,
-    };
+        ? `from date ${applyFromDate}`
+        : `from block ${effectiveBlock}`;
 
-    // Add to partners list
-    setPartners([...partners, newPartner]);
-
-    // Build details string
-    let details = "";
-    if (newPartnerType === "named") {
-      details = `Named partner with wallet ${walletAddress.slice(0, 8)}...${walletAddress.slice(-8)} at ${rakebackRate}% rakeback`;
-    } else if (newPartnerType === "tag-based") {
-      details = `Tag-based partner with memo "${memoKeyword}" at ${rakebackRate}% rakeback`;
-    } else {
-      details = `Hybrid partner with multiple rules at ${rakebackRate}% rakeback`;
+      toast.success(
+        `Partner "${partnerName}" created successfully. Rules will apply ${blockInfo}.`
+      );
+      setShowAddPartnerDialog(false);
+    } catch (e) {
+      console.error("Failed to create partner:", e);
+      toast.error("Failed to create partner. Check console for details.");
     }
-
-    // Add log entry for partner creation
-    addLogEntry({
-      action: "Created partner",
-      partner: partnerName,
-      details: details,
-      appliesFromBlock: effectiveBlock,
-    });
-
-    // Show success message with details
-    const blockInfo = applyFromBlock
-      ? `from block ${applyFromBlock}`
-      : applyFromDate
-      ? `from date ${applyFromDate}`
-      : `from block ${effectiveBlock}`;
-
-    toast.success(
-      `Partner "${partnerName}" created successfully. Rules will apply ${blockInfo}.`
-    );
-
-    setShowAddPartnerDialog(false);
   };
 
-  const selectedPartnerData = mockPartners.find((p) => p.id === selectedPartner);
-  const selectedPartnerRules = selectedPartner
-    ? mockRules[selectedPartner] || []
-    : [];
+  const selectedPartnerData = partners.find((p) => p.id === selectedPartner);
+  const selectedPartnerRules = selectedPartnerData?.rules ?? [];
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -352,7 +291,14 @@ export default function PartnerManagement() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {partners.map((partner) => (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={10} className="text-center py-8 text-zinc-500">
+                  Loading partners...
+                </TableCell>
+              </TableRow>
+            ) : (
+            partners.map((partner) => (
               <TableRow
                 key={partner.id}
                 className="border-zinc-800 hover:bg-zinc-800/50 transition-colors"
@@ -407,7 +353,8 @@ export default function PartnerManagement() {
                   </Button>
                 </TableCell>
               </TableRow>
-            ))}
+            ))
+            )}
           </TableBody>
         </Table>
       </div>
@@ -556,7 +503,7 @@ export default function PartnerManagement() {
                   <div className="flex items-center gap-4 mt-2 text-xs text-zinc-500">
                     <span>By: {log.user}</span>
                     <span>•</span>
-                    <span>Applies from block: {log.appliesFromBlock.toLocaleString()}</span>
+                    <span>Applies from block: {(log.appliesFromBlock ?? 0).toLocaleString()}</span>
                   </div>
                 </div>
                 <div className="text-xs text-zinc-500">{log.timestamp}</div>
@@ -603,7 +550,7 @@ export default function PartnerManagement() {
                           </span>
                         </div>
                         <div className="text-xs text-zinc-500">
-                          From block {rule.appliesFromBlock.toLocaleString()}
+                          From block {(rule.appliesFromBlock ?? 0).toLocaleString()}
                         </div>
                       </div>
 
@@ -612,7 +559,7 @@ export default function PartnerManagement() {
                           <div>
                             <span className="text-zinc-500">Wallet:</span>
                             <div className="font-mono text-zinc-300 mt-1">
-                              {rule.config.wallet}
+                              {rule.config.wallet ?? (rule.config.addresses ?? [])[0] ?? ""}
                             </div>
                           </div>
                           {rule.config.label && (
@@ -631,13 +578,13 @@ export default function PartnerManagement() {
                           <div>
                             <span className="text-zinc-500">Memo String:</span>
                             <div className="font-mono text-zinc-300 mt-1">
-                              "{rule.config.memoString}"
+                              "{rule.config.memo_string ?? rule.config.memoString ?? ""}"
                             </div>
                           </div>
                           <div>
                             <span className="text-zinc-500">Match Type:</span>
                             <div className="text-zinc-300 mt-1">
-                              {rule.config.matchType}
+                              {rule.config.match_type ?? rule.config.matchType ?? "contains"}
                             </div>
                           </div>
                           <div>
@@ -645,7 +592,7 @@ export default function PartnerManagement() {
                               Extrinsic Types:
                             </span>
                             <div className="flex gap-2 mt-1">
-                              {rule.config.extrinsicTypes.map((type: string) => (
+                              {(rule.config.extrinsic_types ?? rule.config.extrinsicTypes ?? []).map((type: string) => (
                                 <span
                                   key={type}
                                   className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700"
@@ -701,23 +648,27 @@ export default function PartnerManagement() {
                 {newRuleType === "wallet" && (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="wallet-address" className="text-zinc-300">
+                      <Label htmlFor="rule-wallet-address" className="text-zinc-300">
                         Wallet Address
                       </Label>
                       <Input
-                        id="wallet-address"
+                        id="rule-wallet-address"
                         placeholder="5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL"
                         className="bg-zinc-950 border-zinc-800 text-zinc-100 font-mono"
+                        value={ruleWalletAddress}
+                        onChange={(e) => setRuleWalletAddress(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="wallet-label" className="text-zinc-300">
+                      <Label htmlFor="rule-wallet-label" className="text-zinc-300">
                         Label (Optional)
                       </Label>
                       <Input
-                        id="wallet-label"
+                        id="rule-wallet-label"
                         placeholder="e.g., Creative Builds custody wallet"
                         className="bg-zinc-950 border-zinc-800 text-zinc-100"
+                        value={ruleWalletLabel}
+                        onChange={(e) => setRuleWalletLabel(e.target.value)}
                       />
                     </div>
                     <div className="bg-blue-950/20 border border-blue-900/50 rounded-lg p-3 text-sm text-zinc-300">
@@ -735,22 +686,24 @@ export default function PartnerManagement() {
                 {newRuleType === "memo" && (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="memo-string" className="text-zinc-300">
+                      <Label htmlFor="rule-memo-string" className="text-zinc-300">
                         Memo String
                       </Label>
                       <Input
-                        id="memo-string"
+                        id="rule-memo-string"
                         placeholder="e.g., talisman"
                         className="bg-zinc-950 border-zinc-800 text-zinc-100 font-mono"
+                        value={ruleMemoString}
+                        onChange={(e) => setRuleMemoString(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="match-type" className="text-zinc-300">
+                      <Label htmlFor="rule-match-type" className="text-zinc-300">
                         Match Type
                       </Label>
-                      <Select defaultValue="contains">
+                      <Select value={ruleMatchType} onValueChange={setRuleMatchType}>
                         <SelectTrigger
-                          id="match-type"
+                          id="rule-match-type"
                           className="bg-zinc-950 border-zinc-800 text-zinc-100"
                         >
                           <SelectValue />
@@ -768,7 +721,7 @@ export default function PartnerManagement() {
                       </Label>
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                          <Switch id="extrinsic-stake" defaultChecked />
+                          <Switch id="extrinsic-stake" checked={ruleExtrinsicStake} onCheckedChange={setRuleExtrinsicStake} />
                           <Label
                             htmlFor="extrinsic-stake"
                             className="text-zinc-400"
@@ -777,7 +730,7 @@ export default function PartnerManagement() {
                           </Label>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Switch id="extrinsic-unstake" defaultChecked />
+                          <Switch id="extrinsic-unstake" checked={ruleExtrinsicUnstake} onCheckedChange={setRuleExtrinsicUnstake} />
                           <Label
                             htmlFor="extrinsic-unstake"
                             className="text-zinc-400"
@@ -786,7 +739,7 @@ export default function PartnerManagement() {
                           </Label>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Switch id="extrinsic-redelegate" defaultChecked />
+                          <Switch id="extrinsic-redelegate" checked={ruleExtrinsicRedelegate} onCheckedChange={setRuleExtrinsicRedelegate} />
                           <Label
                             htmlFor="extrinsic-redelegate"
                             className="text-zinc-400"
@@ -831,6 +784,8 @@ export default function PartnerManagement() {
                       <Textarea
                         placeholder="e.g., SN1, SN21, ROOT (comma-separated)"
                         className="bg-zinc-950 border-zinc-800 text-zinc-100 font-mono"
+                        value={ruleSubnets}
+                        onChange={(e) => setRuleSubnets(e.target.value)}
                       />
                     </div>
 
@@ -871,6 +826,8 @@ export default function PartnerManagement() {
                       id="rule-date"
                       type="date"
                       className="bg-zinc-950 border-zinc-800 text-zinc-100 [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-50"
+                      value={ruleFromDate}
+                      onChange={(e) => setRuleFromDate(e.target.value)}
                     />
                   </div>
 
@@ -893,6 +850,8 @@ export default function PartnerManagement() {
                       type="number"
                       placeholder="e.g., 4521900"
                       className="bg-zinc-950 border-zinc-800 text-zinc-100 font-mono"
+                      value={ruleFromBlock}
+                      onChange={(e) => setRuleFromBlock(e.target.value)}
                     />
                   </div>
                   
@@ -915,13 +874,11 @@ export default function PartnerManagement() {
                     Cancel
                   </Button>
                   <Button
-                    onClick={() => {
-                      toast.success("Rule added successfully");
-                      setShowRulesDialog(false);
-                    }}
+                    onClick={handleAddRule}
+                    disabled={addingRule}
                     className="bg-emerald-900 hover:bg-emerald-800 text-zinc-100"
                   >
-                    Add Rule
+                    {addingRule ? "Adding..." : "Add Rule"}
                   </Button>
                 </div>
               </div>
