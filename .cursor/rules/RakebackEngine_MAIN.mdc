@@ -1,0 +1,430 @@
+---
+description: Rakeback Engine project context — partners, phases, and technical constraints
+alwaysApply: true
+last_consolidated: 2026-02-19
+source_files:
+  - MEMORY.mdc
+  - project-context.mdc
+  - BUILD_PLAN.mdc
+  - rakeback.mdc
+---
+
+# Rakeback Engine — Unified Cursor Context
+
+> Single source-of-truth for Cursor (MDC) covering project context, partners, constraints, and the build plan.
+
+## How to Use This File in Cursor
+- Keep this file at the repo root (or `.cursor/`) and delete/retire the other MDCs **or** keep them but ensure **only this one** is set to `alwaysApply: true`.
+- When asking Cursor/agents for changes, reference section anchors (e.g., “See **Build Plan → Phase 2**”).
+
+---
+
+## Canonical Constraints (Read First)
+
+# Rakeback Engine Context
+
+## Partners
+
+- **Creative Builds (CB)** — NOT Coinbase. Named partner, known wallet, 33% rakeback. EXACT_ADDRESS matching.
+- **Talisman** — Tag-based, discovered via extrinsic memo "talisman" on stake/unstake, 50% on new delegators.
+
+Named partners (CB) always win over tagged wallets (Talisman) in attribution conflicts.
+
+## Attribution Approach
+
+**Block-by-block only.** Balance-delta formulas fail because of:
+- Multiple take rates (9% RT21 vs 18% SNXX)
+- Mixed TAO/dTAO stake on RT21
+- dTAO→TAO conversions double-counting
+- Talisman partial attribution requiring FIFO per wallet
+- Root proportion requiring per-block weight decomposition
+
+## Build Phases
+
+0. Scaffold ✅ | 1. Partner Management | 2. Conversion + Attribution | 3. Ledger + Exports | 4. Talisman | 5. Data Completeness | 6. Payments | 7. Root Prop | 8. Production
+
+Reference `docs/BUILD_PLAN.md` for full phase details.
+
+## Key Engine Blockers
+
+- `ChainClient.get_conversion_events()` — **implemented**; returns empty only in mock/disconnected mode
+- `RulesEngine._check_rt21_auto_delegation()` — stub returning False
+- `match_addresses()` — needs delegation context for non-address rules
+- PER_WALLET aggregation — enum exists, not implemented
+- Root prop TAO/dTAO decomposition — not implemented
+
+## Conventions
+
+- Backend: FastAPI on port 8000, SQLite for dev
+- Frontend: React/Vite on 5173, proxies /api and /health to backend
+- When adding partners or rules, use CB for Creative Builds, never Coinbase
+
+---
+
+## Repo Location & Working Notes (from MEMORY.mdc)
+
+## Repo Location
+`/mnt/c/Users/-_-/Downloads/Rakeback Engine` — monorepo with `backend/` (Python/FastAPI) and `frontend/` (React/Vite)
+
+## Full Context
+- Original planning transcript: `/home/sean/.claude/projects/-home-sean/353349b9-8c8e-4211-bde1-ab087e501d35.jsonl`
+- See [Full Project Context](#full-project-context) for full phase plan, math spec, and architecture details
+
+## Phase Status
+- **Phase 0**: DONE — repo scaffolded, API stubs, health endpoint, CLI works
+- **Phase 1**: DONE — Partner CRUD, ParticipantService, EligibilityRule/RuleChangeLog models, frontend wired to real API, "Add Rule" wired to `backendService.addPartnerRule()`
+  - Remaining gaps: no Alembic migrations; rule-level apply-from (EligibilityRule.applies_from_block) may not be wired from UI applyFromDate; db files in git. Participant-level effective_from (applyFromDate) is persisted.
+- **Phase 2**: DONE — Conversion pipeline + Block Attribution API implemented
+  - `tao_price.py` model + `TaoPriceRepository` — price tracking with timestamp/block lookup
+  - `chain_client.py:534` TODO filled — parses `SubtensorModule` swap extrinsics + `AlphaSwapped`/`SwapExecuted` events
+  - `attributions.py` — 4 endpoints: list, stats, block detail, ingest trigger
+  - `conversions.py` — 3 endpoints: list, detail (with allocations), ingest trigger
+  - `tao_price_service.py` — fetches from TaoStats API, stores locally
+  - `backend-service.ts` — 11 new typed interfaces + 7 new API methods
+  - `block-attribution.tsx` — wired to real API with loading/empty states, filters drive API params
+  - `block-detail.tsx` — wired to real API, shows attribution breakdown per delegator
+  - `conversion-events.tsx` — wired to real API, allocation dialog fetches detail
+  - All endpoints tested via FastAPI TestClient, frontend build clean
+  - Note: `BaseRepository` uses class attribute `model = X`, NOT constructor arg
+- **Phases 3-8**: NOT STARTED
+
+
+Phase 3:
+"Start Phase 3 — build the rakeback ledger and export endpoints, wire the Partner Ledger page to real data, add JSON export, and get Creative Builds rakeback working
+end-to-end."
+
+Phase 4:
+"Start Phase 4 — implement Talisman attribution with extrinsic memo parsing, FIFO stake/unstake tracking, PER_WALLET aggregation mode, and fix match_addresses for
+delegation context."
+
+Phase 5:
+"Start Phase 5 — wire Data Completeness page to real DataGap records, System Overview with real MTD/YTD metrics, real sync status tracking, and rule change audit
+logging."
+
+Phase 6:
+"Start Phase 6 — build the on-chain payment service, wire the Partner Ledger payment dialog to real transactions, and record tx hashes against ledger entries."
+
+Phase 7:
+"Start Phase 7 — research and implement root prop TAO/dTAO weight decomposition, per-block root prop fetching, and update attribution with decomposed proportions on
+RT21."
+
+Phase 8:
+"Start Phase 8 — production hardening: automated daily pipeline, alerting, Alembic migrations, parallel block processing, indexer integration, and API auth/security."
+
+
+## Key Facts
+- CB = Creative Builds (NOT Coinbase) — known wallet, 33% rakeback
+- Talisman — dynamic wallet discovery via extrinsic memos, 50% rakeback, FIFO tracking needed
+- WSL = VaaS provider, fee is max(10% net revenue, $20k) — NOT part of rakeback engine scope
+- Payouts in TAO (not dTAO) — some subnet alpha is non-transferable
+- Engine's former #1 blocker `chain_client.py:get_conversion_events()` is now implemented (Phase 2)
+- `get_block_yield()` uses TotalHotkeyAlpha delta between blocks to detect emissions (NOT events)
+- Bittensor emissions happen at tempo boundaries (every 99-360 blocks per subnet), NOT every block
+- `BlockAttributionRepository.get_range/get_by_block` accept Optional validator_hotkey (fixed from required)
+- `RT21_AUTO_DELEGATION` rule in rules_engine.py is a stub (returns False)
+- `PER_WALLET` aggregation mode enum exists but not implemented
+- Root prop TAO/dTAO weight decomposition has no code at all
+
+## User Modifications Since Phase 0
+User built Phase 1 in Cursor. Key files added/changed:
+- `api-config.ts` — RPC node config, localStorage helpers, smarter backend URL (empty baseUrl in dev for proxy)
+- `app.py` — error handler, logging, conditional reload (RAKEBACK_RELOAD env var)
+- `partners.py` — full CRUD with ParticipantService, rule management, audit log (6 endpoints)
+- `participant_service.py` (NEW) — business logic: create/update/list/get partners, add rules, sync matching_rules JSON, audit log
+- `eligibility_rule.py` (NEW model) — separate table for rules, linked to participant via FK
+- `rule_change_log.py` (NEW model) — immutable audit trail
+- `enums.py` — added PartnerType (named/tag_based/hybrid) and AggregationMode enums
+- `models/__init__.py` — exports new models
+- `repositories/eligibility_rule.py` (NEW) — get_by_participant
+- `repositories/rule_change_log.py` (NEW) — get_all_recent
+- `backend-service.ts` (NEW) — TypeScript API client with typed interfaces
+- `partner-management.tsx` — wired to real API (list, create, log — but "Add Rule" dialog not wired)
+- `package.json` — moved react/react-dom to deps, updated vite
+- `.env.example` — updated chain URL
+- `LOCAL_SETUP.md`, `docs/BUILD_PLAN.md` (NEW docs)
+
+# Environment
+- WSL2 on Windows, no sudo access (use `python3 -m venv --without-pip` + bootstrap pip)
+- Backend venv: `/mnt/c/Users/-_-/Downloads/Rakeback Engine/backend/.venv`
+- Python 3.12.3, Node via npm
+- User has Cursor IDE open on the repo simultaneously — file changes show in Source Control panel
+
+
+---
+
+## Full Project Context
+
+## What This Is
+Revenue attribution and rakeback calculation system for a Bittensor validator (GTV). Tracks how much yield each delegator's stake generates, identifies which delegators belong to rakeback partners, and calculates TAO owed monthly.
+
+## The Players
+| Entity | Role | Rakeback Rate |
+|--------|------|---------------|
+| Creative Builds (CB) | Named partner, known wallet | 33% |
+| Talisman | Wallet provider, dynamic discovery via memos | 50% (new delegators) |
+| WSL | VaaS provider | max(10% net rev, $20k) — out of scope |
+| LVNA | Investor entity | Separate obligation — out of scope |
+| GTV | Operator (us) | Remainder |
+
+Priority: Named partner (CB) always wins over tagged wallet (Talisman).
+
+## Revenue Streams
+1. TAO staked to RT21 (root key) — 9% take
+2. dTAO staked to RT21 — 9% take
+3. dTAO staked to SNXX subnet keys — 18% take
+
+Post-halving, all yield arrives as alpha (dTAO). Daily "nuke" script converts to TAO.
+
+## The Math (Block-by-Block Attribution)
+1. **Snapshot**: Record every delegator's stake per hotkey per subnet per block
+2. **Attribution**: Split yield proportionally with floor rounding + remainder to largest holder
+3. **Root Prop**: Split RT21 yield between TAO and dTAO stakers by effective weight (HARDEST PART - no code exists)
+4. **Conversion**: Link dTAO→TAO nuke events back to delegators via pro-rata allocation
+5. **Rakeback**: Sum by partner with Talisman FIFO partial attribution
+6. ~~Distribution~~: Removed from scope — treasury management, not rakeback
+
+Key invariant: SUM(attributed) == total earned, exactly. Nothing lost, nothing created.
+
+## Phase Plan (Phases 0-8)
+
+### Phase 0: Scaffold — DONE
+New repo with engine backend + UI frontend. Stubs return empty arrays. Health endpoint works.
+
+### Phase 1: API Layer + Partner Management — DONE
+- Real FastAPI CRUD for partners (GET/POST/PUT + rules) — DONE
+- Wire Partner Management page to real data instead of mock arrays — DONE
+- Align RakebackParticipant model with UI expectations — DONE
+- "Add Rule" button wired to API — DONE
+- Remaining gaps: no Alembic migrations; rule-level apply-from (EligibilityRule.applies_from_block) may not be wired from UI applyFromDate; db files in git. Participant-level effective_from (applyFromDate) is persisted.
+- **No chain data yet**
+
+### Phase 2: Conversion Pipeline + Block Attribution API
+- Implement `get_conversion_events()` in chain_client.py (THE #1 BLOCKER)
+- Build GET /api/attributions and GET /api/conversions endpoints
+- Wire Block Attribution, Block Detail, Conversion Events pages to real data
+- Add TAO price storage from TaoStats
+- **First phase with real on-chain data**
+
+### Phase 3: Rakeback Ledger + Exports
+- Build GET /api/rakeback and GET /api/exports
+- Wire Partner Ledger page
+- JSON export alongside CSV
+- Creative Builds rakeback end-to-end
+- **First partner can be paid**
+
+### Phase 4: Talisman Attribution
+- Extrinsic memo parsing for "talisman" remarks
+- FIFO stake/unstake tracking per wallet
+- PER_WALLET aggregation mode
+- Fix match_addresses for delegation context
+- **Second partner live**
+
+### Phase 5: Data Completeness + System Overview
+- Wire Data Completeness page to DataGap records
+- System Overview with real MTD/YTD metrics
+- Real sync status tracking
+- Rule change audit logging
+
+### Phase 6: Payment Execution
+- On-chain payment service (send TAO from distribution wallet)
+- Wire Partner Ledger payment dialog to real transactions
+- Record tx hashes against ledger entries
+
+### Phase 7: Root Prop Decomposition
+- Research chain storage for TAO/dTAO effective weights
+- Per-block root prop fetching
+- TAO/dTAO yield split calculation
+- Update attribution with decomposed proportions on RT21
+
+### Phase 8: Production Hardening
+- Automated daily pipeline (cron)
+- Alerting (Slack/email)
+- Alembic migrations
+- Parallel block processing
+- Indexer integration
+- Security (API auth, env vars for secrets)
+
+## Engine Codebase — What Works vs What's Broken
+
+### Works
+- Block snapshot ingestion (chain + CSV override)
+- Proportion calculation with 18-decimal precision
+- Attribution with floor rounding + remainder to largest holder
+- Exact-match invariant validation
+- Rules engine for EXACT_ADDRESS and ALL matching
+- Ledger entries with audit trail
+- CSV export with payment status tracking
+- Idempotent processing
+- Data gap detection
+- Partner CRUD API (Phase 1)
+- ParticipantService with rule management and audit log (Phase 1)
+- TAO price storage (TaoPrice model, TaoPriceRepository, tao_price_service from TaoStats; Phase 2)
+
+### Broken/Missing
+- `rules_engine.py:164-167` — RT21_AUTO_DELEGATION returns False always (stub)
+- `rules_engine.py:110-132` — match_addresses only handles EXACT_ADDRESS and ALL; needs delegation context for DELEGATION_TYPE/SUBNET
+- `aggregation.py` — PER_WALLET enum exists but not implemented
+- Root prop decomposition — no code anywhere
+- Payment execution — no code
+
+## UI State
+- **Partner Management**: LIVE — wired to real API (list, create, edit rules, audit log)
+- **Block Attribution, Block Detail, Conversion Events**: LIVE — wired to real API (attributions, conversions, TAO price)
+- **Partner Ledger**: still mock data; `getRakebackLedger` exists in backend-service but page uses `mockLedger`
+- Live connections: Archive node WebSocket (block number), TaoStats price API, Health check, Partner CRUD, attributions, conversions
+- Backend service (`backend-service.ts`): typed client; Phase 1–2 endpoints real; ledger/exports stubs return []
+
+## Key Architecture Decisions
+- `matching_rules` JSON on RakebackParticipant is now a **derived cache** from the `eligibility_rules` table
+- EligibilityRule is the source of truth for rules; synced to matching_rules on create/add_rule
+- Vite proxy forwards `/api` and `/health` to `:8000` in dev (empty baseUrl trick avoids CORS)
+- `app.py` has global exception handler returning JSON with CORS headers even on 500s
+- `RAKEBACK_RELOAD` env var controls uvicorn hot-reload (disabled by default on Windows)
+- `createdBy` is always "system" — no auth/user context yet
+
+
+---
+
+## Build Plan
+
+Revenue attribution and rakeback calculation for a Bittensor validator. Block-by-block attribution is the canonical approach — balance-delta formulas do not work for this setup.
+
+## Partners
+
+| Partner | Type | Discovery | Rakeback |
+|---------|------|-----------|----------|
+| **Creative Builds (CB)** | Named | Known wallet address (EXACT_ADDRESS) | 33% |
+| **Talisman** | Tag-based | Extrinsic memo "talisman" on stake/unstake | 50% (new delegators only) |
+
+**Note:** CB = Creative Builds, not Coinbase. Named partners (CB) always win over tagged wallets (Talisman) for attribution.
+
+## Phase Status
+
+| Phase | Status | Deliverable |
+|-------|--------|-------------|
+| 0 | ✅ Done | Scaffold — both API and UI run locally, health check works |
+| 1 | ✅ Done | API Layer + Partner Management |
+| 2 | ✅ Done | Conversion Pipeline + Block Attribution |
+| 3 | Pending | Rakeback Ledger + Exports |
+| 4 | Pending | Talisman Attribution |
+| 5 | Pending | Data Completeness + System Overview |
+| 6 | Pending | Payment Execution |
+| 7 | Pending | Root Prop Decomposition |
+| 8 | Pending | Production Hardening |
+
+---
+
+## Phase 0: Scaffold (DONE)
+
+Set up repo with engine backend (FastAPI) + UI frontend (React/Vite). Both run locally. Backend responds to `/health`. UI still shows mock data.
+
+---
+
+## Phase 1: API Layer + Partner Management
+
+- Implement real FastAPI routes the UI expects
+- Wire Partner Management page to real CRUD (create, edit, view partners in DB)
+- Align `RakebackParticipant` model with UI (add partner type, split `matching_rules` into separate rule entities for audit log)
+
+**Deliverable:** Partner Management page works with real data. Create, edit, view partners — persisted to DB.
+
+---
+
+## Phase 2: Conversion Pipeline + Block Attribution API
+
+- Implement `get_conversion_events()` in chain client (**#1 engine blocker**)
+- Build `GET /api/attributions?start=&end=` and `GET /api/conversions?from=&to=`
+- Wire Block Attribution, Block Detail, and Conversion Events pages to real data
+- Add TAO price storage (from TaoStats at conversion time, store with conversion event)
+
+**Deliverable:** Block Attribution and Conversion Events pages show real chain data. TAO figures are non-zero.
+
+---
+
+## Phase 3: Rakeback Ledger + Exports
+
+- Build `GET /api/rakeback?partnerId=` and `GET /api/exports`
+- Wire Partner Ledger page to real data
+- Add JSON export alongside existing CSV
+- Implement Creative Builds rakeback end-to-end (known address, 33%)
+
+**Deliverable:** Partner Ledger shows real rakeback obligations. Exports work. First partner can be paid.
+
+---
+
+## Phase 4: Talisman Attribution
+
+- Implement RT21 auto-delegation detection (extrinsic memo parsing for "talisman")
+- Build FIFO stake/unstake tracking per wallet per platform
+- Implement PER_WALLET aggregation mode
+- Fix `match_addresses` to pass delegation context for non-address rules
+
+**Deliverable:** Talisman wallets are discovered and attributed. Second partner live.
+
+---
+
+## Phase 5: Data Completeness + System Overview
+
+- Wire Data Completeness page to real `DataGap` records
+- Wire System Overview metrics to real aggregated data (MTD/YTD from ledger entries)
+- Build real sync status tracking (replace "Last sync: 2m ago" hardcode)
+- Add rule change audit logging
+
+**Deliverable:** Dashboard shows real operational health. Data quality is monitored.
+
+---
+
+## Phase 6: Payment Execution
+
+- Build on-chain payment service (send TAO from distribution wallet to partner payout address)
+- Wire Partner Ledger payment dialog to real transactions (replace simulated 2.5s fake)
+- Record transaction hashes against ledger entries
+
+**Deliverable:** Payments can be initiated from the dashboard and tracked on-chain.
+
+---
+
+## Phase 7: Root Prop Decomposition
+
+- Research chain storage format for TAO/dTAO effective weights
+- Implement per-block root prop fetching
+- Build TAO/dTAO yield split calculation
+- Update attribution to use decomposed proportions on RT21
+
+**Deliverable:** Attribution accuracy is complete. All math from the spec is implemented.
+
+---
+
+## Phase 8: Production Hardening
+
+- Automated daily ingestion/attribution pipeline (cron)
+- Alerting (Slack/email on failures or anomalies)
+- Alembic migrations for schema evolution
+- Parallel block processing
+- Indexer integration
+- Security (API auth, env vars for secrets, remove embedded TaoStats key from UI)
+
+**Deliverable:** System runs unattended. Monitoring and alerts in place.
+
+---
+
+## Key Technical Constraints
+
+### Engine Blockers (from original analysis)
+
+1. **Conversion events** — Implemented in Phase 2; returns empty only when chain client is disconnected/mock.
+2. **RT21 auto-delegation** — `RulesEngine._check_rt21_auto_delegation()` returns False always (stub). Talisman attribution broken.
+3. **match_addresses** — Only handles EXACT_ADDRESS and ALL. DELEGATION_TYPE and SUBNET rules need delegation context.
+4. **PER_WALLET aggregation** — Enum exists but not implemented. All participants get single ledger entry.
+5. **Root prop decomposition** — Not implemented. Hardest math problem.
+
+### Repo Structure
+
+```
+Rakeback Engine/
+├── backend/          # Python/FastAPI + engine (models, repos, services)
+├── frontend/         # React/Vite dashboard
+├── docs/
+└── .cursor/rules/
+```
+
