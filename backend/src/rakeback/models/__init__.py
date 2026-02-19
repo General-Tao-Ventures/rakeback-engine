@@ -25,6 +25,7 @@ from rakeback.models.participant import RakebackParticipant
 from rakeback.models.eligibility_rule import EligibilityRule
 from rakeback.models.rule_change_log import RuleChangeLog
 from rakeback.models.processing import ProcessingRun, DataGap
+from rakeback.models.tao_price import TaoPrice
 
 __all__ = [
     "Base",
@@ -56,4 +57,5 @@ __all__ = [
     "RuleChangeLog",
     "ProcessingRun",
     "DataGap",
+    "TaoPrice",
 ]

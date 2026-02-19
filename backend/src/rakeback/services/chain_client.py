@@ -112,9 +112,12 @@ class ChainClient:
         self.retry_attempts = retry_attempts or settings.chain.retry_attempts
         self.retry_delay = retry_delay or settings.chain.retry_delay
         self.finality_depth = settings.chain.finality_depth
-        
+
         self._substrate = None
         self._connected = False
+
+        # Cache of active subnet IDs per validator, populated by get_validator_state
+        self._active_netuids_cache: dict[str, list[int]] = {}
     
     def connect(self) -> bool:
         """
@@ -166,6 +169,9 @@ class ChainClient:
         self._substrate = None
         self._connected = False
     
+    # Maximum number of subnets on the Bittensor network
+    MAX_NETUIDS = 128
+
     def is_connected(self) -> bool:
         """Check if connected to chain."""
         return self._connected and self._substrate is not None
@@ -316,7 +322,7 @@ class ChainClient:
             
             # Get TotalHotkeyAlpha for each subnet to find which subnets have stake
             active_netuids = []
-            for netuid in range(0, 50):  # Check first 50 subnets
+            for netuid in range(0, self.MAX_NETUIDS):
                 try:
                     result = self._substrate.query(
                         module='SubtensorModule',
@@ -330,6 +336,9 @@ class ChainClient:
                 except Exception:
                     pass
             
+            # Cache active netuids for use by get_block_yield
+            self._active_netuids_cache[validator_hotkey] = [n for n, _ in active_netuids]
+
             # For each active subnet, query Alpha delegations
             for netuid, subnet_total in active_netuids:
                 try:
@@ -443,61 +452,85 @@ class ChainClient:
             block_hash = self._substrate.get_block_hash(block_number)
             if not block_hash:
                 raise BlockNotFoundError(f"Block {block_number} not found")
-            
-            # Get events for this block
-            events = self._substrate.get_events(block_hash)
-            
+
+            prev_hash = self._substrate.get_block_hash(block_number - 1)
+            if not prev_hash:
+                return None
+
+            # Determine which subnets to check for this validator.
+            # Use cached active netuids from get_validator_state if available,
+            # otherwise scan for active subnets.
+            netuids_to_check = self._active_netuids_cache.get(validator_hotkey)
+            if netuids_to_check is None:
+                netuids_to_check = []
+                for netuid in range(0, self.MAX_NETUIDS):
+                    try:
+                        result = self._substrate.query(
+                            module='SubtensorModule',
+                            storage_function='TotalHotkeyAlpha',
+                            params=[validator_hotkey, netuid],
+                            block_hash=block_hash
+                        )
+                        if result and result.value and result.value > 0:
+                            netuids_to_check.append(netuid)
+                    except Exception:
+                        pass
+
             total_yield = Decimal(0)
             yield_by_subnet = {}
-            
-            # Parse events for emission/reward events targeting this validator
-            for event in events:
+
+            # Detect emissions by comparing TotalHotkeyAlpha between this
+            # block and the previous block. Bittensor distributes emissions
+            # at tempo boundaries (every N blocks per subnet). A positive
+            # delta in TotalHotkeyAlpha indicates emissions were received.
+            for netuid in netuids_to_check:
                 try:
-                    event_data = event.value
-                    module = event_data.get('module_id', '') if isinstance(event_data, dict) else ''
-                    event_name = event_data.get('event_id', '') if isinstance(event_data, dict) else ''
-                    
-                    # Look for SubtensorModule events related to rewards
-                    if module == 'SubtensorModule':
-                        if event_name in ['NeuronRegistered', 'StakeAdded', 'DelegateAdded']:
-                            # Parse event attributes for reward amounts
-                            attrs = event_data.get('attributes', {})
-                            if isinstance(attrs, dict):
-                                hotkey = attrs.get('hotkey', '')
-                                if hotkey == validator_hotkey:
-                                    amount = attrs.get('amount', 0)
-                                    netuid = attrs.get('netuid', 0)
-                                    yield_amount = Decimal(str(amount)) if amount else Decimal(0)
-                                    total_yield += yield_amount
-                                    yield_by_subnet[netuid] = yield_by_subnet.get(netuid, Decimal(0)) + yield_amount
-                except Exception:
-                    pass
-            
-            # If no events found, try querying the pending emission storage
-            if total_yield == 0:
-                try:
-                    pending = self._substrate.query(
+                    curr = self._substrate.query(
                         module='SubtensorModule',
-                        storage_function='PendingEmission',
-                        params=[validator_hotkey],
+                        storage_function='TotalHotkeyAlpha',
+                        params=[validator_hotkey, netuid],
                         block_hash=block_hash
                     )
-                    if pending and pending.value:
-                        total_yield = Decimal(str(pending.value))
-                except Exception:
-                    pass
-            
-            # Return None if no yield data found
+                    curr_val = curr.value if curr and curr.value else 0
+                    if curr_val == 0:
+                        continue
+
+                    prev = self._substrate.query(
+                        module='SubtensorModule',
+                        storage_function='TotalHotkeyAlpha',
+                        params=[validator_hotkey, netuid],
+                        block_hash=prev_hash
+                    )
+                    prev_val = prev.value if prev and prev.value else 0
+
+                    delta = curr_val - prev_val
+                    if delta > 0:
+                        yield_amount = Decimal(str(delta))
+                        total_yield += yield_amount
+                        yield_by_subnet[netuid] = yield_amount
+                        logger.debug(
+                            "Emission detected via alpha delta",
+                            block=block_number,
+                            netuid=netuid,
+                            delta=delta,
+                        )
+                except Exception as e:
+                    logger.debug(
+                        "Error checking alpha delta",
+                        netuid=netuid,
+                        error=str(e),
+                    )
+
             if total_yield == 0:
                 return None
-            
+
             return BlockYieldData(
                 block_number=block_number,
                 validator_hotkey=validator_hotkey,
                 total_dtao_earned=total_yield,
                 yield_by_subnet=yield_by_subnet
             )
-        
+
         return self._retry_call(_fetch)
     
     def get_conversion_events(
@@ -531,11 +564,114 @@ class ChainClient:
                 block = self._substrate.get_block(block_hash)
                 events = self._substrate.get_events(block_hash)
                 
-                # TODO: Parse for conversion extrinsics/events
-                # Look for:
-                # - Swap calls
-                # - Conversion events
-                
+                # Parse extrinsics for swap / conversion calls
+                if block and "extrinsics" in block:
+                    for ext_idx, ext in enumerate(block["extrinsics"]):
+                        call = ext.get("call", {})
+                        call_module = call.get("call_module", "")
+                        call_function = call.get("call_function", "")
+
+                        # Match known swap extrinsic names
+                        swap_functions = {
+                            "do_swap_alpha_for_tao",
+                            "swap_alpha_for_tao",
+                            "swap",
+                            "do_swap",
+                        }
+
+                        if call_module == "SubtensorModule" and call_function in swap_functions:
+                            # Extract args
+                            args = {
+                                p.get("name", ""): p.get("value")
+                                for p in call.get("call_args", [])
+                            }
+
+                            ext_hotkey = args.get("hotkey") or args.get("validator_hotkey", "")
+                            if validator_hotkey and ext_hotkey != validator_hotkey:
+                                continue
+
+                            subnet_id = args.get("netuid") or args.get("subnet_id")
+                            if subnet_id is not None:
+                                subnet_id = int(subnet_id)
+
+                            dtao_amt = Decimal(str(args.get("alpha_amount", 0) or args.get("amount", 0)))
+                            tao_amt = Decimal(0)
+                            rate = Decimal(0)
+
+                            # Try to find corresponding event with actual TAO received
+                            for evt in events:
+                                evt_module = getattr(evt, "event_module", "") or ""
+                                evt_id = getattr(evt, "event_id", "") or ""
+                                if evt_module == "SubtensorModule" and evt_id in (
+                                    "AlphaSwapped", "SwapExecuted", "StakeRemoved"
+                                ):
+                                    evt_attrs = getattr(evt, "attributes", {}) or {}
+                                    if isinstance(evt_attrs, dict):
+                                        evt_tao = evt_attrs.get("tao_amount") or evt_attrs.get("amount_tao", 0)
+                                        tao_amt = Decimal(str(evt_tao))
+                                        break
+                                    elif isinstance(evt_attrs, (list, tuple)) and len(evt_attrs) >= 2:
+                                        tao_amt = Decimal(str(evt_attrs[1]))
+                                        break
+
+                            if dtao_amt > 0 and tao_amt > 0:
+                                rate = (tao_amt / dtao_amt).quantize(Decimal("1E-18"))
+
+                            tx_hash = ext.get("extrinsic_hash", f"0x{block_num:x}-{ext_idx}")
+
+                            conversions.append(ConversionData(
+                                block_number=block_num,
+                                transaction_hash=tx_hash,
+                                validator_hotkey=ext_hotkey,
+                                dtao_amount=dtao_amt,
+                                tao_amount=tao_amt,
+                                conversion_rate=rate,
+                                subnet_id=subnet_id,
+                            ))
+
+                # Also scan events directly for swap events not tied to parsed extrinsics
+                for evt in events:
+                    evt_module = getattr(evt, "event_module", "") or ""
+                    evt_id = getattr(evt, "event_id", "") or ""
+                    if evt_module == "SubtensorModule" and evt_id in (
+                        "AlphaSwapped", "SwapExecuted"
+                    ):
+                        evt_attrs = getattr(evt, "attributes", {}) or {}
+                        if not isinstance(evt_attrs, dict):
+                            continue
+                        evt_hotkey = evt_attrs.get("hotkey", "")
+                        if validator_hotkey and evt_hotkey != validator_hotkey:
+                            continue
+
+                        # Skip if we already captured this via extrinsic parsing
+                        already_found = any(
+                            c.block_number == block_num and c.validator_hotkey == evt_hotkey
+                            for c in conversions
+                        )
+                        if already_found:
+                            continue
+
+                        dtao_amt = Decimal(str(evt_attrs.get("alpha_amount", 0)))
+                        tao_amt = Decimal(str(evt_attrs.get("tao_amount", 0)))
+                        subnet_id = evt_attrs.get("netuid")
+                        if subnet_id is not None:
+                            subnet_id = int(subnet_id)
+                        rate = Decimal(0)
+                        if dtao_amt > 0 and tao_amt > 0:
+                            rate = (tao_amt / dtao_amt).quantize(Decimal("1E-18"))
+
+                        tx_hash = evt_attrs.get("extrinsic_hash", f"0xevt-{block_num:x}")
+
+                        conversions.append(ConversionData(
+                            block_number=block_num,
+                            transaction_hash=tx_hash,
+                            validator_hotkey=evt_hotkey,
+                            dtao_amount=dtao_amt,
+                            tao_amount=tao_amt,
+                            conversion_rate=rate,
+                            subnet_id=subnet_id,
+                        ))
+
             return conversions
         
         return self._retry_call(_fetch)

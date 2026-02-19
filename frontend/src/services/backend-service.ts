@@ -79,6 +79,90 @@ export interface RuleChangeLogEntry {
   appliesFromBlock: number;
 }
 
+/** Attribution record returned by API */
+export interface Attribution {
+  id: string;
+  blockNumber: number;
+  validatorHotkey: string;
+  delegatorAddress: string;
+  delegationType: string;
+  subnetId: number | null;
+  attributedDtao: string;
+  delegationProportion: string;
+  completenessFlag: string;
+  taoAllocated: string;
+  fullyAllocated: boolean;
+}
+
+/** Attribution stats summary */
+export interface AttributionStats {
+  totalBlocks: number;
+  blocksWithAttributions: number;
+  totalAttributions: number;
+  totalDtaoAttributed: string;
+  uniqueDelegators: number;
+}
+
+/** Block detail with all delegator attributions */
+export interface BlockDetail {
+  blockNumber: number;
+  timestamp: string | null;
+  validatorHotkey: string;
+  totalDtao: string;
+  delegatorCount: number;
+  completenessFlag: string;
+  attributions: Attribution[];
+}
+
+/** Conversion event returned by API */
+export interface ConversionEvent {
+  id: string;
+  blockNumber: number;
+  transactionHash: string;
+  validatorHotkey: string;
+  dtaoAmount: string;
+  taoAmount: string;
+  conversionRate: string;
+  subnetId: number | null;
+  fullyAllocated: boolean;
+  taoPrice: number | null;
+}
+
+/** Allocation detail for a conversion */
+export interface AllocationDetail {
+  id: string;
+  conversionEventId: string;
+  blockAttributionId: string;
+  taoAllocated: string;
+  allocationMethod: string;
+  completenessFlag: string;
+}
+
+/** Conversion detail with allocations */
+export interface ConversionDetail {
+  conversion: ConversionEvent;
+  allocations: AllocationDetail[];
+}
+
+/** Ingestion trigger result */
+export interface IngestionResult {
+  runId: string;
+  blocksProcessed: number;
+  blocksCreated: number;
+  blocksSkipped: number;
+  attributionsCreated: number;
+  errors: string[];
+}
+
+/** Conversion ingestion result */
+export interface ConversionIngestionResult {
+  runId: string;
+  blocksProcessed: number;
+  eventsCreated: number;
+  eventsSkipped: number;
+  errors: string[];
+}
+
 class BackendService {
   private baseUrl: string;
 
@@ -103,7 +187,15 @@ class BackendService {
       });
 
       if (!response.ok) {
-        throw new Error(`Backend API error: ${response.statusText}`);
+        let detail = response.statusText;
+        try {
+          const errBody = await response.json();
+          if (errBody?.detail) detail = errBody.detail;
+          if (errBody?.type) detail = `[${errBody.type}] ${detail}`;
+        } catch {
+          // ignore JSON parse failure
+        }
+        throw new Error(`Backend API error: ${detail}`);
       }
 
       return await response.json();
@@ -169,32 +261,80 @@ class BackendService {
     );
   }
 
-  /**
-   * Get attributions for a block range
-   */
-  async getAttributions(startBlock: number, endBlock: number) {
-    return this.fetchData(
-      `${API_CONFIG.backend.endpoints.attributions}?start=${startBlock}&end=${endBlock}`
+  async getAttributions(
+    startBlock: number,
+    endBlock: number,
+    params?: { validator_hotkey?: string; subnet_id?: number }
+  ) {
+    const qp = new URLSearchParams({
+      start: String(startBlock),
+      end: String(endBlock),
+    });
+    if (params?.validator_hotkey) qp.append("validator_hotkey", params.validator_hotkey);
+    if (params?.subnet_id != null) qp.append("subnet_id", String(params.subnet_id));
+    return this.fetchData<Attribution[]>(
+      `${API_CONFIG.backend.endpoints.attributions}?${qp.toString()}`
     );
   }
 
-  /**
-   * Get conversion events
-   */
-  async getConversions(params?: { from?: string; to?: string }) {
-    let url = API_CONFIG.backend.endpoints.conversions;
+  async getAttributionStats(startBlock: number, endBlock: number, validatorHotkey?: string) {
+    const qp = new URLSearchParams({
+      start: String(startBlock),
+      end: String(endBlock),
+    });
+    if (validatorHotkey) qp.append("validator_hotkey", validatorHotkey);
+    return this.fetchData<AttributionStats>(
+      `${API_CONFIG.backend.endpoints.attributions}/stats?${qp.toString()}`
+    );
+  }
 
-    if (params) {
-      const queryParams = new URLSearchParams();
-      if (params.from) queryParams.append("from", params.from);
-      if (params.to) queryParams.append("to", params.to);
+  async getBlockDetail(blockNumber: number, validatorHotkey?: string) {
+    const qp = new URLSearchParams();
+    if (validatorHotkey) qp.append("validator_hotkey", validatorHotkey);
+    const qs = qp.toString() ? `?${qp.toString()}` : "";
+    return this.fetchData<BlockDetail>(
+      `${API_CONFIG.backend.endpoints.attributions}/block/${blockNumber}${qs}`
+    );
+  }
 
-      if (queryParams.toString()) {
-        url += `?${queryParams.toString()}`;
-      }
-    }
+  async getConversions(params?: { startBlock?: number; endBlock?: number }) {
+    const qp = new URLSearchParams();
+    if (params?.startBlock != null) qp.append("start_block", String(params.startBlock));
+    if (params?.endBlock != null) qp.append("end_block", String(params.endBlock));
+    const qs = qp.toString() ? `?${qp.toString()}` : "";
+    return this.fetchData<ConversionEvent[]>(
+      `${API_CONFIG.backend.endpoints.conversions}${qs}`
+    );
+  }
 
-    return this.fetchData(url);
+  async getConversionDetail(conversionId: string) {
+    return this.fetchData<ConversionDetail>(
+      `${API_CONFIG.backend.endpoints.conversions}/${conversionId}`
+    );
+  }
+
+  async triggerIngestion(startBlock: number, endBlock: number, validatorHotkey: string) {
+    const qp = new URLSearchParams({
+      start_block: String(startBlock),
+      end_block: String(endBlock),
+      validator_hotkey: validatorHotkey,
+    });
+    return this.fetchData<IngestionResult>(
+      `${API_CONFIG.backend.endpoints.attributions}/ingest?${qp.toString()}`,
+      { method: "POST" }
+    );
+  }
+
+  async triggerConversionIngestion(startBlock: number, endBlock: number, validatorHotkey?: string) {
+    const qp = new URLSearchParams({
+      start_block: String(startBlock),
+      end_block: String(endBlock),
+    });
+    if (validatorHotkey) qp.append("validator_hotkey", validatorHotkey);
+    return this.fetchData<ConversionIngestionResult>(
+      `${API_CONFIG.backend.endpoints.conversions}/ingest?${qp.toString()}`,
+      { method: "POST" }
+    );
   }
 
   /**

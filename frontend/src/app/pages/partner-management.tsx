@@ -72,12 +72,25 @@ export default function PartnerManagement() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [partnersData, logData] = await Promise.all([
+        const [partnersResult, logResult] = await Promise.allSettled([
           backendService.getPartners(),
           backendService.getRuleChangeLog(),
         ]);
-        setPartners(Array.isArray(partnersData) ? partnersData : []);
-        setRuleChangeLog(Array.isArray(logData) ? logData : []);
+        setPartners(
+          partnersResult.status === "fulfilled" && Array.isArray(partnersResult.value)
+            ? partnersResult.value
+            : []
+        );
+        setRuleChangeLog(
+          logResult.status === "fulfilled" && Array.isArray(logResult.value)
+            ? logResult.value
+            : []
+        );
+        if (partnersResult.status === "rejected") {
+          toast.error("Failed to load partners. Is the backend running?");
+        } else if (logResult.status === "rejected") {
+          toast.warning("Partner list loaded, but rule log could not be fetched.");
+        }
       } catch (e) {
         console.error("Failed to load partners:", e);
         toast.error("Failed to load partners. Is the backend running?");
@@ -217,8 +230,7 @@ export default function PartnerManagement() {
       });
 
       setPartners((prev) => (created ? [...prev, created] : prev));
-      const logRes = await backendService.getRuleChangeLog();
-      setRuleChangeLog(Array.isArray(logRes) ? logRes : []);
+      setShowAddPartnerDialog(false);
 
       const blockInfo = applyFromBlock
         ? `from block ${applyFromBlock}`
@@ -229,7 +241,13 @@ export default function PartnerManagement() {
       toast.success(
         `Partner "${partnerName}" created successfully. Rules will apply ${blockInfo}.`
       );
-      setShowAddPartnerDialog(false);
+
+      try {
+        const logRes = await backendService.getRuleChangeLog();
+        setRuleChangeLog(Array.isArray(logRes) ? logRes : []);
+      } catch {
+        toast.warning("Partner created, but rule log could not be refreshed.");
+      }
     } catch (e) {
       console.error("Failed to create partner:", e);
       toast.error("Failed to create partner. Check console for details.");

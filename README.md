@@ -9,23 +9,21 @@ Revenue attribution and rakeback calculation system for dTAO-based validator rev
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+source .venv/bin/activate   # or .\.venv\Scripts\Activate.ps1 on Windows
 pip install -e .
 ```
 
-Initialize the database:
+Copy `backend/.env` from `.env.example` if needed. Default uses SQLite at `data/rakeback.db`.
+
+Start the API server (schema is created on startup):
 
 ```bash
-DB_SQLITE_PATH=data/dev.db rakeback init-db
-```
-
-Start the API server:
-
-```bash
-DB_SQLITE_PATH=data/dev.db rakeback-api
+rakeback-api
 ```
 
 The API will be available at `http://localhost:8000`. Check `http://localhost:8000/health` to verify.
+
+To reset DB: delete `backend/data/rakeback.db` and restart `rakeback-api`. See [docs/RUNBOOK.md](docs/RUNBOOK.md) for full Windows PowerShell commands.
 
 ### Frontend
 

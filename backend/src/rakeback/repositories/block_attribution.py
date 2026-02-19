@@ -37,17 +37,16 @@ class BlockAttributionRepository(BaseRepository[BlockAttribution]):
     def get_by_block(
         self,
         block_number: int,
-        validator_hotkey: str
+        validator_hotkey: Optional[str] = None
     ) -> Sequence[BlockAttribution]:
         """Get all attributions for a block."""
+        conditions = [BlockAttribution.block_number == block_number]
+        if validator_hotkey is not None:
+            conditions.append(BlockAttribution.validator_hotkey == validator_hotkey)
+
         stmt = (
             select(BlockAttribution)
-            .where(
-                and_(
-                    BlockAttribution.block_number == block_number,
-                    BlockAttribution.validator_hotkey == validator_hotkey
-                )
-            )
+            .where(and_(*conditions))
             .order_by(BlockAttribution.delegator_address)
         )
         return self.session.scalars(stmt).all()
@@ -56,18 +55,19 @@ class BlockAttributionRepository(BaseRepository[BlockAttribution]):
         self,
         start_block: int,
         end_block: int,
-        validator_hotkey: str
+        validator_hotkey: Optional[str] = None
     ) -> Sequence[BlockAttribution]:
         """Get attributions for a block range."""
+        conditions = [
+            BlockAttribution.block_number >= start_block,
+            BlockAttribution.block_number <= end_block,
+        ]
+        if validator_hotkey is not None:
+            conditions.append(BlockAttribution.validator_hotkey == validator_hotkey)
+
         stmt = (
             select(BlockAttribution)
-            .where(
-                and_(
-                    BlockAttribution.block_number >= start_block,
-                    BlockAttribution.block_number <= end_block,
-                    BlockAttribution.validator_hotkey == validator_hotkey
-                )
-            )
+            .where(and_(*conditions))
             .order_by(BlockAttribution.block_number, BlockAttribution.delegator_address)
         )
         return self.session.scalars(stmt).all()
