@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { useBlockchain } from "../../hooks/use-blockchain";
 import { API_CONFIG, getRpcNodeUrl, getRpcNodeApiKey } from "../../config/api-config";
 import { blockchainService } from "../../services/blockchain-service";
+import { taoStatsService } from "../../services/taostats-service";
 
 export default function ApiSettings() {
   const blockchain = useBlockchain();
@@ -36,7 +37,13 @@ export default function ApiSettings() {
     return API_CONFIG.taoStats.apiKey;
   });
   const [backendUrl, setBackendUrl] = useState(API_CONFIG.backend.baseUrl);
-  const [customNodeUrl, setCustomNodeUrl] = useState(API_CONFIG.bittensor.archiveNode);
+  const [customNodeUrl, setCustomNodeUrl] = useState(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("ARCHIVE_NODE_URL");
+      if (stored) return stored;
+    }
+    return API_CONFIG.bittensor.archiveNode;
+  });
   const [indexerUrl, setIndexerUrl] = useState("https://api.indexer.bittensor.com");
   const [rpcNodeUrl, setRpcNodeUrl] = useState(() => getRpcNodeUrl());
   const [rpcNodeApiKey, setRpcNodeApiKey] = useState(() => getRpcNodeApiKey());
@@ -44,16 +51,22 @@ export default function ApiSettings() {
   // Health status states
   const [archiveNodeHealth, setArchiveNodeHealth] = useState<"healthy" | "degraded" | "down" | "unknown">("unknown");
   const [rpcNodeHealth, setRpcNodeHealth] = useState<"healthy" | "degraded" | "down" | "unknown">("unknown");
-  const [taoStatsHealth, setTaoStatsHealth] = useState<"healthy" | "degraded" | "down" | "unknown">("unknown");
+  const [taoStatsHealth, setTaoStatsHealth] = useState<"healthy" | "degraded" | "down" | "unknown" | "disconnected" | "error">(() => {
+    if (typeof window === "undefined") return "unknown";
+    const key = localStorage.getItem("taostats_api_key") || API_CONFIG.taoStats.apiKey;
+    return key?.trim() ? "unknown" : "disconnected";
+  });
   const [backendHealth, setBackendHealth] = useState<"healthy" | "degraded" | "down" | "unknown">("unknown");
   const [indexerHealth, setIndexerHealth] = useState<"healthy" | "degraded" | "down" | "unknown">("unknown");
 
   // Health status helper component
-  const HealthIndicator = ({ status }: { status: "healthy" | "degraded" | "down" | "unknown" }) => {
+  const HealthIndicator = ({ status }: { status: "healthy" | "degraded" | "down" | "disconnected" | "unknown" | "error" }) => {
     const config = {
       healthy: { color: "text-emerald-400", bg: "bg-emerald-400/10", icon: CheckCircle2, text: "Healthy" },
       degraded: { color: "text-amber-400", bg: "bg-amber-400/10", icon: AlertTriangle, text: "Degraded" },
       down: { color: "text-red-400", bg: "bg-red-400/10", icon: XCircle, text: "Down" },
+      error: { color: "text-red-400", bg: "bg-red-400/10", icon: XCircle, text: "Error" },
+      disconnected: { color: "text-zinc-500", bg: "bg-zinc-500/10", icon: XCircle, text: "Disconnected" },
       unknown: { color: "text-zinc-500", bg: "bg-zinc-500/10", icon: AlertCircle, text: "Unknown" },
     };
 
@@ -68,8 +81,9 @@ export default function ApiSettings() {
   };
 
   const handleConnectBlockchain = async () => {
+    const url = customNodeUrl?.trim() || API_CONFIG.bittensor.archiveNode;
     try {
-      await blockchain.connect();
+      await blockchain.connect(url);
       toast.success(`Connected to: ${blockchainService.getCurrentNodeUrl()}`);
     } catch (error) {
       toast.error(
@@ -85,26 +99,27 @@ export default function ApiSettings() {
   };
 
   const handleTestTaoStats = async () => {
+    const keyToTest = taoStatsApiKey?.trim();
+    if (!keyToTest) {
+      toast.error("Enter an API key before testing");
+      setTaoStatsHealth("disconnected");
+      return;
+    }
     setIsTestingTaoStats(true);
+    setTaoStatsHealth("unknown");
     try {
-      // TaoStats API expects x-api-key header (not Bearer)
-      const response = await fetch(`${API_CONFIG.taoStats.baseUrl}${API_CONFIG.taoStats.endpoints.network}`, {
-        headers: {
-          "Content-Type": "application/json",
-          ...(taoStatsApiKey?.trim() && { "x-api-key": taoStatsApiKey.trim() }),
-        },
-      });
+      const result = await taoStatsService.testConnection(keyToTest);
 
-      if (response.ok) {
-        if (taoStatsApiKey?.trim()) {
-          localStorage.setItem("taostats_api_key", taoStatsApiKey.trim());
-        }
+      if (result.ok) {
+        localStorage.setItem("taostats_api_key", keyToTest);
         toast.success("TaoStats API connection successful");
         setTaoStatsHealth("healthy");
+      } else if (result.status === 401) {
+        toast.error("Invalid or missing API key. Check the key and try again.");
+        setTaoStatsHealth("error");
       } else {
-        const text = await response.text();
-        toast.error(`TaoStats API error: ${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 80)}` : ""}`);
-        setTaoStatsHealth("degraded");
+        toast.error(result.message ? `TaoStats API error: ${result.message}` : `TaoStats API error: ${result.status}`);
+        setTaoStatsHealth("error");
       }
     } catch (error) {
       toast.error("Failed to connect to TaoStats API");
@@ -241,7 +256,7 @@ export default function ApiSettings() {
                 Bittensor Archive Node
               </h3>
             </div>
-            <HealthIndicator status={blockchain.status === "connected" ? "healthy" : blockchain.status === "connecting" ? "unknown" : blockchain.status === "error" ? "down" : "unknown"} />
+            <HealthIndicator status={blockchain.status === "connected" ? "healthy" : blockchain.status === "connecting" ? "degraded" : blockchain.status === "error" ? "down" : "disconnected"} />
           </div>
           <p className="text-sm text-zinc-400 mt-1">
             Real-time blockchain data from Bittensor network

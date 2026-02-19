@@ -1,10 +1,32 @@
 /**
  * TaoStats API Service
- * 
- * Service for fetching data from TaoStats API
+ *
+ * Service for fetching data from TaoStats API.
+ * TaoStats requires the token in the Authorization header (not x-api-key).
  */
 
-import { API_CONFIG, getApiHeaders } from "../config/api-config";
+import { API_CONFIG, getTaoStatsApiKey } from "../config/api-config";
+
+/** Build TaoStats request headers in one place. Key from localStorage/env via getTaoStatsApiKey(). */
+function getTaoStatsRequestHeaders(overrideKey?: string): Record<string, string> {
+  const key = (overrideKey ?? getTaoStatsApiKey())?.trim() || "";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (key) {
+    // TaoStats expects the raw token in Authorization (no Bearer prefix)
+    headers["Authorization"] = key;
+  }
+  return headers;
+}
+
+let authHeaderLogged = false;
+function logAuthHeaderOnce(present: boolean) {
+  if (import.meta.env?.DEV && !authHeaderLogged) {
+    authHeaderLogged = true;
+    console.log("TaoStats request auth: Authorization header present =", present);
+  }
+}
 
 class TaoStatsService {
   private baseUrl: string;
@@ -14,32 +36,61 @@ class TaoStatsService {
   }
 
   /**
-   * Generic fetch method (uses getApiHeaders which reads key from localStorage or env)
+   * Generic fetch method. Uses centralized headers with Authorization: Bearer <key>.
    */
-  private async fetchData<T>(endpoint: string): Promise<T> {
+  private async fetchData<T>(endpoint: string, overrideKey?: string): Promise<T> {
+    const headers = getTaoStatsRequestHeaders(overrideKey);
+    logAuthHeaderOnce(!!headers["Authorization"]);
+
     try {
       const url = `${this.baseUrl}${endpoint}`;
-      console.log('TaoStats API Request:', url);
+      console.log("TaoStats API Request:", url);
 
-      const response = await fetch(url, {
-        headers: getApiHeaders(),
-      });
+      const response = await fetch(url, { headers });
 
-      console.log('TaoStats API Response:', response.status, response.statusText);
+      console.log("TaoStats API Response:", response.status, response.statusText);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('TaoStats API Error Response:', errorText);
+        console.error("TaoStats API Error Response:", errorText);
         throw new Error(`TaoStats API error (${response.status}): ${response.statusText || errorText}`);
       }
 
       const data = await response.json();
-      console.log('TaoStats API Data:', data);
+      console.log("TaoStats API Data:", data);
       return data;
     } catch (error) {
       console.error("TaoStats fetch error:", error);
       throw error;
     }
+  }
+
+  /**
+   * Test connection with optional key (e.g. from settings before save).
+   * Returns { ok, status, statusCode }. Use for Test Connection button.
+   */
+  async testConnection(overrideKey?: string): Promise<{ ok: boolean; status: number; message?: string }> {
+    const key = (overrideKey ?? getTaoStatsApiKey())?.trim();
+    const url = `${this.baseUrl}${API_CONFIG.taoStats.endpoints.network}`;
+    const headers = getTaoStatsRequestHeaders(key ?? undefined);
+    logAuthHeaderOnce(!!headers["Authorization"]);
+
+    const response = await fetch(url, { headers });
+    const text = await response.text();
+    let message: string | undefined;
+    if (!response.ok) {
+      try {
+        const json = JSON.parse(text);
+        message = json?.message ?? text;
+      } catch {
+        message = text || response.statusText;
+      }
+    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      message: message || undefined,
+    };
   }
 
   /**

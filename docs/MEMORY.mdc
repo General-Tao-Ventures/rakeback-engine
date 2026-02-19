@@ -1,0 +1,89 @@
+# Rakeback Engine Project
+
+## Repo Location
+`/mnt/c/Users/-_-/Downloads/Rakeback Engine` — monorepo with `backend/` (Python/FastAPI) and `frontend/` (React/Vite)
+
+## Full Context
+- Original planning transcript: `/home/sean/.claude/projects/-home-sean/353349b9-8c8e-4211-bde1-ab087e501d35.jsonl`
+- See [project-context.md](./project-context.md) for full phase plan, math spec, and architecture details
+
+## Phase Status
+- **Phase 0**: DONE — repo scaffolded, API stubs, health endpoint, CLI works
+- **Phase 1**: MOSTLY DONE (built in Cursor) — Partner CRUD, ParticipantService, EligibilityRule/RuleChangeLog models, frontend wired to real API
+  - Gaps: "Add Rule" UI button not wired to API, no Alembic migrations, applyFromDate not persisted, db files committed to git
+  - **FIX APPLIED**: Wired "Add Rule" button to `backendService.addPartnerRule()`, added form state, removed duplicate `RuleChangeLogEntry` interface. Build verified clean.
+  - Remaining gaps: no Alembic migrations, applyFromDate not persisted, db files in git
+- **Phase 2**: DONE — Conversion pipeline + Block Attribution API implemented
+  - `tao_price.py` model + `TaoPriceRepository` — price tracking with timestamp/block lookup
+  - `chain_client.py:534` TODO filled — parses `SubtensorModule` swap extrinsics + `AlphaSwapped`/`SwapExecuted` events
+  - `attributions.py` — 4 endpoints: list, stats, block detail, ingest trigger
+  - `conversions.py` — 3 endpoints: list, detail (with allocations), ingest trigger
+  - `tao_price_service.py` — fetches from TaoStats API, stores locally
+  - `backend-service.ts` — 11 new typed interfaces + 7 new API methods
+  - `block-attribution.tsx` — wired to real API with loading/empty states, filters drive API params
+  - `block-detail.tsx` — wired to real API, shows attribution breakdown per delegator
+  - `conversion-events.tsx` — wired to real API, allocation dialog fetches detail
+  - All endpoints tested via FastAPI TestClient, frontend build clean
+  - Note: `BaseRepository` uses class attribute `model = X`, NOT constructor arg
+- **Phases 3-8**: NOT STARTED
+
+
+Phase 3:
+"Start Phase 3 — build the rakeback ledger and export endpoints, wire the Partner Ledger page to real data, add JSON export, and get Creative Builds rakeback working
+end-to-end."
+
+Phase 4:
+"Start Phase 4 — implement Talisman attribution with extrinsic memo parsing, FIFO stake/unstake tracking, PER_WALLET aggregation mode, and fix match_addresses for
+delegation context."
+
+Phase 5:
+"Start Phase 5 — wire Data Completeness page to real DataGap records, System Overview with real MTD/YTD metrics, real sync status tracking, and rule change audit
+logging."
+
+Phase 6:
+"Start Phase 6 — build the on-chain payment service, wire the Partner Ledger payment dialog to real transactions, and record tx hashes against ledger entries."
+
+Phase 7:
+"Start Phase 7 — research and implement root prop TAO/dTAO weight decomposition, per-block root prop fetching, and update attribution with decomposed proportions on
+RT21."
+
+Phase 8:
+"Start Phase 8 — production hardening: automated daily pipeline, alerting, Alembic migrations, parallel block processing, indexer integration, and API auth/security."
+
+
+## Key Facts
+- CB = Creative Builds (NOT Coinbase) — known wallet, 33% rakeback
+- Talisman — dynamic wallet discovery via extrinsic memos, 50% rakeback, FIFO tracking needed
+- WSL = VaaS provider, fee is max(10% net revenue, $20k) — NOT part of rakeback engine scope
+- Payouts in TAO (not dTAO) — some subnet alpha is non-transferable
+- Engine's former #1 blocker `chain_client.py:get_conversion_events()` is now implemented (Phase 2)
+- `get_block_yield()` uses TotalHotkeyAlpha delta between blocks to detect emissions (NOT events)
+- Bittensor emissions happen at tempo boundaries (every 99-360 blocks per subnet), NOT every block
+- `BlockAttributionRepository.get_range/get_by_block` accept Optional validator_hotkey (fixed from required)
+- `RT21_AUTO_DELEGATION` rule in rules_engine.py is a stub (returns False)
+- `PER_WALLET` aggregation mode enum exists but not implemented
+- Root prop TAO/dTAO weight decomposition has no code at all
+
+## User Modifications Since Phase 0
+User built Phase 1 in Cursor. Key files added/changed:
+- `api-config.ts` — RPC node config, localStorage helpers, smarter backend URL (empty baseUrl in dev for proxy)
+- `app.py` — error handler, logging, conditional reload (RAKEBACK_RELOAD env var)
+- `partners.py` — full CRUD with ParticipantService, rule management, audit log (6 endpoints)
+- `participant_service.py` (NEW) — business logic: create/update/list/get partners, add rules, sync matching_rules JSON, audit log
+- `eligibility_rule.py` (NEW model) — separate table for rules, linked to participant via FK
+- `rule_change_log.py` (NEW model) — immutable audit trail
+- `enums.py` — added PartnerType (named/tag_based/hybrid) and AggregationMode enums
+- `models/__init__.py` — exports new models
+- `repositories/eligibility_rule.py` (NEW) — get_by_participant
+- `repositories/rule_change_log.py` (NEW) — get_all_recent
+- `backend-service.ts` (NEW) — TypeScript API client with typed interfaces
+- `partner-management.tsx` — wired to real API (list, create, log — but "Add Rule" dialog not wired)
+- `package.json` — moved react/react-dom to deps, updated vite
+- `.env.example` — updated chain URL
+- `LOCAL_SETUP.md`, `docs/BUILD_PLAN.md` (NEW docs)
+
+# Environment
+- WSL2 on Windows, no sudo access (use `python3 -m venv --without-pip` + bootstrap pip)
+- Backend venv: `/mnt/c/Users/-_-/Downloads/Rakeback Engine/backend/.venv`
+- Python 3.12.3, Node via npm
+- User has Cursor IDE open on the repo simultaneously — file changes show in Source Control panel

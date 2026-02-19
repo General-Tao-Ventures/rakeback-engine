@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__jira__jira_get",
+      "mcp__jira__jira_post"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "jira"
+  ]
+}

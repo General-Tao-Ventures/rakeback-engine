@@ -10,6 +10,7 @@ from rakeback.repositories.participant import ParticipantRepository
 from rakeback.repositories.eligibility_rule import EligibilityRuleRepository
 from rakeback.repositories.rule_change_log import RuleChangeLogRepository
 from rakeback.repositories.processing import ProcessingRunRepository, DataGapRepository
+from rakeback.repositories.tao_price import TaoPriceRepository
 
 __all__ = [
     "BaseRepository",
@@ -24,4 +25,5 @@ __all__ = [
     "RuleChangeLogRepository",
     "ProcessingRunRepository",
     "DataGapRepository",
+    "TaoPriceRepository",
 ]

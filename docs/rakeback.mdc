@@ -1,0 +1,42 @@
+---
+description: Rakeback Engine project context — partners, phases, and technical constraints
+alwaysApply: true
+---
+
+# Rakeback Engine Context
+
+## Partners
+
+- **Creative Builds (CB)** — NOT Coinbase. Named partner, known wallet, 33% rakeback. EXACT_ADDRESS matching.
+- **Talisman** — Tag-based, discovered via extrinsic memo "talisman" on stake/unstake, 50% on new delegators.
+
+Named partners (CB) always win over tagged wallets (Talisman) in attribution conflicts.
+
+## Attribution Approach
+
+**Block-by-block only.** Balance-delta formulas fail because of:
+- Multiple take rates (9% RT21 vs 18% SNXX)
+- Mixed TAO/dTAO stake on RT21
+- dTAO→TAO conversions double-counting
+- Talisman partial attribution requiring FIFO per wallet
+- Root proportion requiring per-block weight decomposition
+
+## Build Phases
+
+0. Scaffold ✅ | 1. Partner Management | 2. Conversion + Attribution | 3. Ledger + Exports | 4. Talisman | 5. Data Completeness | 6. Payments | 7. Root Prop | 8. Production
+
+Reference `docs/BUILD_PLAN.md` for full phase details.
+
+## Key Engine Blockers
+
+- `ChainClient.get_conversion_events()` — returns empty; blocks all TAO figures
+- `RulesEngine._check_rt21_auto_delegation()` — stub returning False
+- `match_addresses()` — needs delegation context for non-address rules
+- PER_WALLET aggregation — enum exists, not implemented
+- Root prop TAO/dTAO decomposition — not implemented
+
+## Conventions
+
+- Backend: FastAPI on port 8000, SQLite for dev
+- Frontend: React/Vite on 5173, proxies /api and /health to backend
+- When adding partners or rules, use CB for Creative Builds, never Coinbase

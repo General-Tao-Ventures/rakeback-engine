@@ -3,10 +3,12 @@ import { Suspense } from "react";
 import { RouterProvider } from "react-router";
 import { router } from "./routes";
 import { ThemeProvider } from "next-themes";
+import { ArchiveNodeProvider } from "../context/archive-node-context";
 
 function AppContent() {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark">
+      <ArchiveNodeProvider>
       <Suspense
         fallback={
           <div
@@ -25,6 +27,7 @@ function AppContent() {
       >
         <RouterProvider router={router} />
       </Suspense>
+      </ArchiveNodeProvider>
     </ThemeProvider>
   );
 }

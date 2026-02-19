@@ -259,20 +259,30 @@ export default function SystemOverview() {
     checkApiHealth();
   }, []);
 
-  const getHealthStatusColor = (status: "healthy" | "degraded" | "down" | "unknown") => {
+  const getHealthStatusColor = (status: "healthy" | "degraded" | "down" | "disconnected" | "connecting" | "unknown") => {
     switch (status) {
       case "healthy":
         return { icon: CheckCircle2, iconColor: "text-emerald-400", bgColor: "bg-emerald-950/30", borderColor: "border-emerald-900/50" };
       case "degraded":
+      case "connecting":
         return { icon: AlertTriangle, iconColor: "text-amber-400", bgColor: "bg-amber-950/30", borderColor: "border-amber-900/50" };
       case "down":
         return { icon: XCircle, iconColor: "text-red-400", bgColor: "bg-red-950/30", borderColor: "border-red-900/50" };
+      case "disconnected":
+        return { icon: XCircle, iconColor: "text-zinc-500", bgColor: "bg-zinc-900/30", borderColor: "border-zinc-800" };
       default:
         return { icon: AlertCircle, iconColor: "text-zinc-500", bgColor: "bg-zinc-900/30", borderColor: "border-zinc-800" };
     }
   };
 
-  const archiveNodeHealth = blockchain.status === "connected" ? "healthy" : blockchain.status === "error" ? "down" : "unknown";
+  const archiveNodeHealth =
+    blockchain.status === "connected"
+      ? "healthy"
+      : blockchain.status === "error"
+        ? "down"
+        : blockchain.status === "connecting"
+          ? "connecting"
+          : "disconnected";
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">

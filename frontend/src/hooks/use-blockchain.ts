@@ -1,51 +1,27 @@
 /**
  * React Hook for Blockchain Integration
- * 
- * Provides easy access to blockchain data with React state management
+ *
+ * Status/connect/disconnect come from global archive-node context so they persist across navigation.
+ * Block feed (currentBlock + subscription) stays in this hook — unchanged.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useArchiveNodeStatus } from "../context/archive-node-context";
 import { blockchainService } from "../services/blockchain-service";
 
 export function useBlockchain() {
-  const [status, setStatus] = useState<"disconnected" | "connecting" | "connected" | "error">(
-    "disconnected"
-  );
+  const archive = useArchiveNodeStatus();
   const [currentBlock, setCurrentBlock] = useState<number | null>(null);
-  const [error, setError] = useState<Error | null>(null);
 
-  // Connect to blockchain
-  const connect = useCallback(async () => {
-    try {
-      setStatus("connecting");
-      await blockchainService.connect();
-      setStatus("connected");
-      
-      // Get initial block
-      const block = await blockchainService.getCurrentBlock();
-      setCurrentBlock(block);
-    } catch (err) {
-      setStatus("error");
-      setError(err as Error);
-      console.error("Blockchain connection error:", err);
-    }
-  }, []);
-
-  // Disconnect from blockchain
-  const disconnect = useCallback(async () => {
-    await blockchainService.disconnect();
-    setStatus("disconnected");
-    setCurrentBlock(null);
-  }, []);
-
-  // Subscribe to new blocks
+  // Block feed: subscribe when connected. No cleanup that disconnects the socket.
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
 
     const subscribeToBlocks = async () => {
-      // Only subscribe if manually connected
-      if (status === "connected") {
+      if (archive.status === "connected") {
         try {
+          const block = await blockchainService.getCurrentBlock();
+          setCurrentBlock(block);
           unsubscribe = await blockchainService.subscribeToNewBlocks((block) => {
             setCurrentBlock(block.number);
           });
@@ -62,14 +38,14 @@ export function useBlockchain() {
         unsubscribe();
       }
     };
-  }, [status]);
+  }, [archive.status]);
 
   return {
-    status,
+    status: archive.status,
     currentBlock,
-    error,
-    connect,
-    disconnect,
+    error: archive.lastError ? new Error(archive.lastError) : null,
+    connect: archive.connect,
+    disconnect: archive.disconnect,
     // Service methods
     getCurrentBlock: () => blockchainService.getCurrentBlock(),
     getBlockDetails: (blockNumber: number) => blockchainService.getBlockDetails(blockNumber),

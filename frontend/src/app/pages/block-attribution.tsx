@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router";
 import { StatusBadge, StatusType } from "../components/status-badge";
 import { Input } from "../components/ui/input";
@@ -19,11 +19,12 @@ import {
   TableRow,
 } from "../components/ui/table";
 import { Button } from "../components/ui/button";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw, Loader2, Download, AlertTriangle } from "lucide-react";
 import { useBlockchain } from "../../hooks/use-blockchain";
 import { toast } from "sonner";
+import { backendService, type Attribution, type IngestionResult } from "../../services/backend-service";
 
-interface BlockAttribution {
+interface GroupedBlock {
   blockNumber: number;
   subnet: string;
   hotkey: string;
@@ -33,103 +34,87 @@ interface BlockAttribution {
   timestamp: string;
 }
 
-const mockData: BlockAttribution[] = [
-  {
-    blockNumber: 4521893,
-    subnet: "SN1",
-    hotkey: "5G9RtsTbiYJ...",
-    totalDtao: "142.5847",
-    delegatorCount: 47,
-    status: "complete",
-    timestamp: "2026-02-14 08:23:41",
-  },
-  {
-    blockNumber: 4521892,
-    subnet: "SN21",
-    hotkey: "5HK8d9Zy2aB...",
-    totalDtao: "89.2103",
-    delegatorCount: 32,
-    status: "complete",
-    timestamp: "2026-02-14 08:23:29",
-  },
-  {
-    blockNumber: 4521891,
-    subnet: "SN1",
-    hotkey: "5G9RtsTbiYJ...",
-    totalDtao: "156.8921",
-    delegatorCount: 47,
-    status: "complete",
-    timestamp: "2026-02-14 08:23:17",
-  },
-  {
-    blockNumber: 4521890,
-    subnet: "SN8",
-    hotkey: "5FnL7qR3mV9...",
-    totalDtao: "0.0000",
-    delegatorCount: 0,
-    status: "partial",
-    timestamp: "2026-02-14 08:23:05",
-  },
-  {
-    blockNumber: 4521889,
-    subnet: "SN21",
-    hotkey: "5HK8d9Zy2aB...",
-    totalDtao: "94.7652",
-    delegatorCount: 32,
-    status: "complete",
-    timestamp: "2026-02-14 08:22:53",
-  },
-  {
-    blockNumber: 4521888,
-    subnet: "SN1",
-    hotkey: "5G9RtsTbiYJ...",
-    totalDtao: "148.3394",
-    delegatorCount: 47,
-    status: "complete",
-    timestamp: "2026-02-14 08:22:41",
-  },
-  {
-    blockNumber: 4521887,
-    subnet: "ROOT",
-    hotkey: "5D5PhZQNJc7...",
-    totalDtao: "23.4102",
-    delegatorCount: 12,
-    status: "missing",
-    timestamp: "2026-02-14 08:22:29",
-  },
-  {
-    blockNumber: 4521886,
-    subnet: "SN21",
-    hotkey: "5HK8d9Zy2aB...",
-    totalDtao: "91.5473",
-    delegatorCount: 32,
-    status: "complete",
-    timestamp: "2026-02-14 08:22:17",
-  },
-];
+function groupAttributionsByBlock(attributions: Attribution[]): GroupedBlock[] {
+  const map = new Map<
+    number,
+    { hotkey: string; subnet: string; totalDtao: number; delegators: Set<string>; flags: Set<string> }
+  >();
+
+  for (const attr of attributions) {
+    let entry = map.get(attr.blockNumber);
+    if (!entry) {
+      entry = { hotkey: attr.validatorHotkey, subnet: "", totalDtao: 0, delegators: new Set(), flags: new Set() };
+      map.set(attr.blockNumber, entry);
+    }
+    entry.totalDtao += parseFloat(attr.attributedDtao);
+    entry.delegators.add(attr.delegatorAddress);
+    entry.flags.add(attr.completenessFlag);
+    if (attr.subnetId != null) {
+      entry.subnet = attr.subnetId === 0 ? "ROOT" : `SN${attr.subnetId}`;
+    }
+  }
+
+  const blocks: GroupedBlock[] = [];
+  for (const [blockNumber, entry] of map) {
+    let status: StatusType = "complete";
+    if (entry.flags.has("missing") || entry.flags.has("incomplete")) status = "missing";
+    else if (entry.flags.has("partial")) status = "partial";
+
+    blocks.push({
+      blockNumber,
+      subnet: entry.subnet || "—",
+      hotkey: entry.hotkey.length > 14 ? entry.hotkey.slice(0, 14) + "..." : entry.hotkey,
+      totalDtao: entry.totalDtao.toFixed(4),
+      delegatorCount: entry.delegators.size,
+      status,
+      timestamp: "",
+    });
+  }
+
+  blocks.sort((a, b) => b.blockNumber - a.blockNumber);
+  return blocks;
+}
+
+// Persist list data + filters across list ↔ detail navigation so returning doesn't blank the list.
+let listCache: {
+  data: GroupedBlock[];
+  blockRange: string;
+  subnet: string;
+  hotkey: string;
+  customStartBlock: string;
+  customEndBlock: string;
+} | null = null;
 
 export default function BlockAttribution() {
   const blockchain = useBlockchain();
-  const [blockRange, setBlockRange] = useState("latest-100");
-  const [subnet, setSubnet] = useState("all");
-  const [hotkey, setHotkey] = useState("");
+  const [blockRange, setBlockRange] = useState(() => listCache?.blockRange ?? "latest-100");
+  const [subnet, setSubnet] = useState(() => listCache?.subnet ?? "all");
+  const [hotkey, setHotkey] = useState(() => listCache?.hotkey ?? "");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [customStartBlock, setCustomStartBlock] = useState("");
-  const [customEndBlock, setCustomEndBlock] = useState("");
+  const [customStartBlock, setCustomStartBlock] = useState(() => listCache?.customStartBlock ?? "");
+  const [customEndBlock, setCustomEndBlock] = useState(() => listCache?.customEndBlock ?? "");
   const [isFetching, setIsFetching] = useState(false);
 
-  // Use blockchain current block if available, otherwise use mock
+  const [data, setData] = useState<GroupedBlock[]>(() => listCache?.data ?? []);
+  const [loading, setLoading] = useState(false);
+
+  // Ingestion state
+  const [ingestStartBlock, setIngestStartBlock] = useState("");
+  const [ingestEndBlock, setIngestEndBlock] = useState("");
+  const [ingestHotkey, setIngestHotkey] = useState("");
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestResult, setIngestResult] = useState<IngestionResult | null>(null);
+  const [ingestElapsed, setIngestElapsed] = useState(0);
+
   const currentBlock = blockchain.currentBlock || 4527342;
   const currentTime = new Date();
-  const blockTime = 12; // seconds per block
+  const blockTime = 12;
 
-  // Calculate yesterday's range (24 hours ago)
-  const blocksPerDay = Math.floor((24 * 60 * 60) / blockTime); // 7,200 blocks
+  const blocksPerDay = Math.floor((24 * 60 * 60) / blockTime);
   const yesterdayStartBlock = currentBlock - blocksPerDay;
   const yesterdayEndBlock = currentBlock - 1;
 
-  // Calculate today's predicted range
   const todayStartTime = new Date(currentTime);
   todayStartTime.setHours(0, 0, 0, 0);
   const secondsSinceMidnight = Math.floor(
@@ -138,7 +123,6 @@ export default function BlockAttribution() {
   const blocksSinceMidnight = Math.floor(secondsSinceMidnight / blockTime);
   const todayStartBlock = currentBlock - blocksSinceMidnight;
 
-  // Predict end of day
   const endOfDay = new Date(currentTime);
   endOfDay.setHours(23, 59, 59, 999);
   const secondsUntilMidnight = Math.floor(
@@ -147,23 +131,117 @@ export default function BlockAttribution() {
   const blocksUntilMidnight = Math.floor(secondsUntilMidnight / blockTime);
   const todayEndBlock = currentBlock + blocksUntilMidnight;
 
+  const getBlockRangeForQuery = useCallback((): [number, number] => {
+    if (blockRange === "custom") {
+      const s = parseInt(customStartBlock) || currentBlock - 100;
+      const e = parseInt(customEndBlock) || currentBlock;
+      return [s, e];
+    }
+    const count = blockRange === "latest-1000" ? 1000 : blockRange === "latest-10000" ? 10000 : 100;
+    return [currentBlock - count, currentBlock];
+  }, [blockRange, customStartBlock, customEndBlock, currentBlock]);
+
+  const fetchData = useCallback(
+    async (opts?: { showFeedback?: boolean }) => {
+      setLoading(true);
+      try {
+        const [start, end] = getBlockRangeForQuery();
+        const subnetId = subnet === "all" ? undefined : subnet === "root" ? 0 : parseInt(subnet.replace("sn", ""));
+        const attrs = await backendService.getAttributions(start, end, {
+          validator_hotkey: hotkey || undefined,
+          subnet_id: subnetId,
+        });
+        const grouped = groupAttributionsByBlock(attrs);
+        setData(grouped);
+        listCache = {
+          data: grouped,
+          blockRange,
+          subnet,
+          hotkey,
+          customStartBlock,
+          customEndBlock,
+        };
+        if (opts?.showFeedback && grouped.length === 0) {
+          toast.info("No attributions found for this range. Ingest block data first.");
+        }
+      } catch (err) {
+        console.error("Failed to fetch attributions:", err);
+        setData([]);
+        toast.error("Failed to fetch attributions. Is the backend running on port 8000?");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [getBlockRangeForQuery, subnet, hotkey, blockRange, customStartBlock, customEndBlock]
+  );
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
   const handleFetchCurrentBlock = async () => {
     setIsFetching(true);
     try {
-      // Connect if not already connected
       if (blockchain.status !== "connected") {
         await blockchain.connect();
       }
-
-      // Fetch current block
       const block = await blockchain.getCurrentBlock();
-      
       toast.success(`Fetched current block: ${block.toLocaleString()}`);
     } catch (error) {
       toast.error("Failed to fetch current block. Check API Settings.");
       console.error(error);
     } finally {
       setIsFetching(false);
+    }
+  };
+
+  const handleIngest = async () => {
+    const start = parseInt(ingestStartBlock);
+    const end = parseInt(ingestEndBlock);
+    const hk = ingestHotkey.trim();
+
+    if (!start || !end || !hk) {
+      toast.error("Please fill in start block, end block, and validator hotkey.");
+      return;
+    }
+    if (end < start) {
+      toast.error("End block must be >= start block.");
+      return;
+    }
+    if (end - start > 500) {
+      toast.error("Maximum 500 blocks per ingestion. Use a smaller range.");
+      return;
+    }
+
+    setIngesting(true);
+    setIngestResult(null);
+    setIngestElapsed(0);
+    const startTime = Date.now();
+    const timer = setInterval(() => setIngestElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000);
+
+    try {
+      const result = await backendService.triggerIngestion(start, end, hk);
+      setIngestResult(result);
+      if (result.attributionsCreated > 0) {
+        toast.success(`Ingested ${result.attributionsCreated} attributions across ${result.blocksCreated} blocks.`);
+        // Auto-refresh table with the ingested range
+        setBlockRange("custom");
+        setCustomStartBlock(String(start));
+        setCustomEndBlock(String(end));
+        setHotkey(hk);
+        // Trigger a re-fetch after short delay so state updates propagate
+        setTimeout(() => fetchData(), 500);
+      } else if (result.errors.length > 0) {
+        toast.error(`Ingestion completed with errors. ${result.errors.length} error(s).`);
+      } else {
+        toast.warning("Ingestion completed but no attributions were created. The validator may not have delegations in this block range.");
+      }
+    } catch (err) {
+      console.error("Ingestion failed:", err);
+      toast.error("Ingestion request failed. Check that the backend is running.");
+    } finally {
+      clearInterval(timer);
+      setIngesting(false);
     }
   };
 
@@ -182,7 +260,6 @@ export default function BlockAttribution() {
 
       {/* Block Range Status Cards */}
       <div className="grid grid-cols-3 gap-4">
-        {/* Current Block */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
             Current Block
@@ -213,7 +290,6 @@ export default function BlockAttribution() {
           </Button>
         </div>
 
-        {/* Today's Predicted Range */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
             Today's Block Range (Predicted)
@@ -227,7 +303,6 @@ export default function BlockAttribution() {
           </div>
         </div>
 
-        {/* Yesterday's Range */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 uppercase tracking-wider mb-1.5">
             Yesterday's Block Range (24h)
@@ -302,11 +377,23 @@ export default function BlockAttribution() {
             </div>
           </div>
 
-          {/* Custom Range Inputs - Show when custom is selected */}
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={() => fetchData({ showFeedback: true })}
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Search
+            </Button>
+          </div>
+
+          {/* Custom Range Inputs */}
           {blockRange === "custom" && (
             <div className="pt-4 border-t border-zinc-800">
               <div className="grid grid-cols-2 gap-6">
-                {/* Date Range Section */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="h-px flex-1 bg-zinc-800"></div>
@@ -350,7 +437,6 @@ export default function BlockAttribution() {
                   )}
                 </div>
 
-                {/* Block Range Section */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="h-px flex-1 bg-zinc-800"></div>
@@ -399,66 +485,220 @@ export default function BlockAttribution() {
         </div>
       </div>
 
+      {/* Ingest Blocks Panel */}
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-6">
+        <div className="flex items-start gap-3 mb-4">
+          <Download className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+          <div>
+            <h3 className="font-medium text-zinc-50">Ingest Block Data</h3>
+            <p className="text-sm text-zinc-400 mt-0.5">
+              Fetch on-chain snapshots, yields, and compute attributions for a block range.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-4 gap-4 mb-4">
+          <div className="space-y-2">
+            <Label htmlFor="ingest-start" className="text-zinc-300 text-sm">
+              Start Block
+            </Label>
+            <Input
+              id="ingest-start"
+              type="number"
+              placeholder="e.g., 7574300"
+              value={ingestStartBlock}
+              onChange={(e) => setIngestStartBlock(e.target.value)}
+              disabled={ingesting}
+              className="bg-zinc-900 border-zinc-700 text-zinc-100 font-mono placeholder:text-zinc-500"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ingest-end" className="text-zinc-300 text-sm">
+              End Block
+            </Label>
+            <Input
+              id="ingest-end"
+              type="number"
+              placeholder="e.g., 7574305"
+              value={ingestEndBlock}
+              onChange={(e) => setIngestEndBlock(e.target.value)}
+              disabled={ingesting}
+              className="bg-zinc-900 border-zinc-700 text-zinc-100 font-mono placeholder:text-zinc-500"
+            />
+          </div>
+          <div className="space-y-2 col-span-2">
+            <Label htmlFor="ingest-hotkey" className="text-zinc-300 text-sm">
+              Validator Hotkey
+            </Label>
+            <Input
+              id="ingest-hotkey"
+              placeholder="e.g., 5Gq2gs4ft..."
+              value={ingestHotkey}
+              onChange={(e) => setIngestHotkey(e.target.value)}
+              disabled={ingesting}
+              className="bg-zinc-900 border-zinc-700 text-zinc-100 font-mono placeholder:text-zinc-500"
+            />
+          </div>
+        </div>
+
+        {/* Warning note */}
+        <div className="flex items-start gap-2 mb-4 p-3 bg-amber-950/20 border border-amber-900/40 rounded-lg">
+          <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-amber-300/80 leading-relaxed">
+            <span className="font-medium text-amber-300">Heads up:</span> Each block
+            requires multiple RPC calls to the archive node. Expect{" "}
+            <span className="font-mono">~5-30s per block</span> depending on network
+            latency and how many subnets the validator is active on. Start with a small
+            range (5-10 blocks) to test, then scale up. Max 500 blocks per request.
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={handleIngest}
+            disabled={ingesting || !ingestStartBlock || !ingestEndBlock || !ingestHotkey.trim()}
+            className="bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+          >
+            {ingesting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Ingesting...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Ingest Blocks
+              </>
+            )}
+          </Button>
+
+          {/* Live elapsed timer while ingesting */}
+          {ingesting && (
+            <div className="flex items-center gap-2 text-sm text-zinc-400">
+              <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+              <span>
+                Processing {parseInt(ingestEndBlock) - parseInt(ingestStartBlock) + 1} blocks...{" "}
+                <span className="font-mono text-zinc-300">{ingestElapsed}s</span> elapsed
+              </span>
+            </div>
+          )}
+
+          {/* Result summary after completion */}
+          {!ingesting && ingestResult && (
+            <div className="flex items-center gap-3 text-sm">
+              {ingestResult.attributionsCreated > 0 ? (
+                <span className="text-emerald-400">
+                  {ingestResult.attributionsCreated} attributions created across{" "}
+                  {ingestResult.blocksCreated} blocks
+                </span>
+              ) : (
+                <span className="text-amber-400">
+                  No attributions created
+                  {ingestResult.errors.length > 0
+                    ? ` (${ingestResult.errors.length} errors)`
+                    : ""}
+                </span>
+              )}
+              {ingestResult.blocksSkipped > 0 && (
+                <span className="text-zinc-500">
+                  ({ingestResult.blocksSkipped} skipped — already ingested)
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Error details expandable */}
+        {!ingesting && ingestResult && ingestResult.errors.length > 0 && (
+          <details className="mt-3">
+            <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400">
+              Show {ingestResult.errors.length} error(s)
+            </summary>
+            <div className="mt-2 max-h-32 overflow-y-auto rounded bg-zinc-950 border border-zinc-800 p-2">
+              {ingestResult.errors.map((err, i) => (
+                <div key={i} className="text-xs text-red-400/80 font-mono truncate">
+                  {err}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+
       {/* Table */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-              <TableHead className="text-zinc-400">Block Number</TableHead>
-              <TableHead className="text-zinc-400">Timestamp</TableHead>
-              <TableHead className="text-zinc-400">Subnet</TableHead>
-              <TableHead className="text-zinc-400">Hotkey</TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                Total dTAO
-              </TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                Delegators
-              </TableHead>
-              <TableHead className="text-zinc-400">Status</TableHead>
-              <TableHead className="text-zinc-400"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {mockData.map((row) => (
-              <TableRow
-                key={row.blockNumber}
-                className="border-zinc-800 hover:bg-zinc-800/50 transition-colors cursor-pointer"
-              >
-                <TableCell className="font-mono text-zinc-100">
-                  {row.blockNumber.toLocaleString()}
-                </TableCell>
-                <TableCell className="text-zinc-400 text-sm">
-                  {row.timestamp}
-                </TableCell>
-                <TableCell>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
-                    {row.subnet}
-                  </span>
-                </TableCell>
-                <TableCell className="font-mono text-sm text-zinc-400">
-                  {row.hotkey}
-                </TableCell>
-                <TableCell className="text-right font-mono text-zinc-100">
-                  {row.totalDtao}
-                </TableCell>
-                <TableCell className="text-right text-zinc-400">
-                  {row.delegatorCount}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={row.status} />
-                </TableCell>
-                <TableCell>
-                  <Link
-                    to={`/block-detail/${row.blockNumber}`}
-                    className="text-zinc-400 hover:text-zinc-200 transition-colors"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Link>
-                </TableCell>
+        {loading && data.length === 0 ? (
+          <div className="flex items-center justify-center py-16 text-zinc-400">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            Loading attributions...
+          </div>
+        ) : data.length === 0 ? (
+          <div className="text-center py-16 text-zinc-500">
+            <p className="text-lg mb-1">No attributions found</p>
+            <p className="text-sm">
+              Ingest block data first using the API, then attributions will appear here.
+            </p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
+                <TableHead className="text-zinc-400">Block Number</TableHead>
+                <TableHead className="text-zinc-400">Timestamp</TableHead>
+                <TableHead className="text-zinc-400">Subnet</TableHead>
+                <TableHead className="text-zinc-400">Hotkey</TableHead>
+                <TableHead className="text-zinc-400 text-right">
+                  Total dTAO
+                </TableHead>
+                <TableHead className="text-zinc-400 text-right">
+                  Delegators
+                </TableHead>
+                <TableHead className="text-zinc-400">Status</TableHead>
+                <TableHead className="text-zinc-400"></TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {data.map((row) => (
+                <TableRow
+                  key={row.blockNumber}
+                  className="border-zinc-800 hover:bg-zinc-800/50 transition-colors cursor-pointer"
+                >
+                  <TableCell className="font-mono text-zinc-100">
+                    {row.blockNumber.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-zinc-400 text-sm">
+                    {row.timestamp || "—"}
+                  </TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
+                      {row.subnet}
+                    </span>
+                  </TableCell>
+                  <TableCell className="font-mono text-sm text-zinc-400">
+                    {row.hotkey}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-zinc-100">
+                    {row.totalDtao}
+                  </TableCell>
+                  <TableCell className="text-right text-zinc-400">
+                    {row.delegatorCount}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={row.status} />
+                  </TableCell>
+                  <TableCell>
+                    <Link
+                      to={`/block-detail/${row.blockNumber}`}
+                      className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Link>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </div>
 
       {/* Summary */}
@@ -466,13 +706,13 @@ export default function BlockAttribution() {
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 mb-1">Total Blocks</div>
           <div className="text-2xl font-mono text-zinc-100">
-            {mockData.length.toLocaleString()}
+            {data.length.toLocaleString()}
           </div>
         </div>
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 mb-1">Total dTAO</div>
           <div className="text-2xl font-mono text-zinc-100">
-            {mockData
+            {data
               .reduce((acc, row) => acc + parseFloat(row.totalDtao), 0)
               .toFixed(4)}
           </div>
@@ -480,14 +720,14 @@ export default function BlockAttribution() {
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 mb-1">Complete</div>
           <div className="text-2xl font-mono text-emerald-400">
-            {mockData.filter((r) => r.status === "complete").length}
+            {data.filter((r) => r.status === "complete").length}
           </div>
         </div>
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 mb-1">Requires Review</div>
           <div className="text-2xl font-mono text-amber-400">
             {
-              mockData.filter(
+              data.filter(
                 (r) => r.status === "partial" || r.status === "missing"
               ).length
             }
