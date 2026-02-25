@@ -38,15 +38,15 @@ dev = [
 ]
 
 [project.scripts]
-rakeback = "rakeback.cli.main:app"
-rakeback-api = "rakeback.api.app:start"
+rakeback-api = "app.main:start"
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["app*", "db*", "rakeback*", "worker*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

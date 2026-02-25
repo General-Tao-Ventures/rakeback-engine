@@ -1,109 +1,86 @@
-"""Enumeration types for the Rakeback Attribution Engine."""
+"""Enumeration types for the Rakeback Attribution Engine.
+
+Values MUST match the CHECK constraints in migrations/001_initial_schema.sql.
+"""
 
 from enum import Enum
 
 
 class CompletenessFlag(str, Enum):
-    """Indicates data completeness status."""
-    
-    COMPLETE = "complete"
-    PARTIAL = "partial"
-    MISSING = "missing"
-    INCOMPLETE = "incomplete"  # Derived from missing upstream data
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    MISSING = "MISSING"
+    INCOMPLETE = "INCOMPLETE"
 
 
 class DataSource(str, Enum):
-    """Source of ingested data."""
-    
-    CHAIN = "chain"
-    CSV_OVERRIDE = "csv_override"
-    BACKFILL = "backfill"
+    CHAIN = "CHAIN"
+    CSV_OVERRIDE = "CSV_OVERRIDE"
+    BACKFILL = "BACKFILL"
 
 
 class DelegationType(str, Enum):
-    """Type of delegation to validator."""
-    
-    ROOT_TAO = "root_tao"
-    SUBNET_DTAO = "subnet_dtao"
-    CHILD_HOTKEY = "child_hotkey"
+    ROOT_TAO = "ROOT_TAO"
+    SUBNET_DTAO = "SUBNET_DTAO"
+    CHILD_HOTKEY = "CHILD_HOTKEY"
 
 
 class AllocationMethod(str, Enum):
-    """Method used to allocate converted TAO to attributions."""
-    
-    FIFO = "fifo"
-    PRORATA = "prorata"
-    EXPLICIT = "explicit"
+    FIFO = "FIFO"
+    PRORATA = "PRORATA"
+    EXPLICIT = "EXPLICIT"
 
 
 class PaymentStatus(str, Enum):
-    """Payment status for rakeback ledger entries."""
-    
-    UNPAID = "unpaid"
-    PAID = "paid"
-    DISPUTED = "disputed"
+    UNPAID = "UNPAID"
+    PAID = "PAID"
+    DISPUTED = "DISPUTED"
 
 
 class PeriodType(str, Enum):
-    """Aggregation period type."""
-    
-    DAILY = "daily"
-    MONTHLY = "monthly"
+    DAILY = "DAILY"
+    MONTHLY = "MONTHLY"
 
 
 class ParticipantType(str, Enum):
-    """Type of rakeback participant."""
-    
-    PARTNER = "partner"
-    DELEGATOR_GROUP = "delegator_group"
-    SUBNET = "subnet"
+    PARTNER = "PARTNER"
+    DELEGATOR_GROUP = "DELEGATOR_GROUP"
+    SUBNET = "SUBNET"
 
 
 class PartnerType(str, Enum):
-    """Discovery mechanism for partners (aligns with UI)."""
-    
-    NAMED = "named"
-    TAG_BASED = "tag_based"
-    HYBRID = "hybrid"
+    NAMED = "NAMED"
+    TAG_BASED = "TAG_BASED"
+    HYBRID = "HYBRID"
 
 
 class AggregationMode(str, Enum):
-    """How rakeback should be aggregated for a participant."""
-    
-    LUMP_SUM = "lump_sum"
-    PER_WALLET = "per_wallet"
+    LUMP_SUM = "LUMP_SUM"
+    PER_WALLET = "PER_WALLET"
 
 
 class GapType(str, Enum):
-    """Type of data gap detected."""
-    
-    SNAPSHOT = "snapshot"
-    YIELD = "yield"
-    CONVERSION = "conversion"
+    SNAPSHOT = "SNAPSHOT"
+    YIELD = "YIELD"
+    CONVERSION = "CONVERSION"
 
 
 class ResolutionStatus(str, Enum):
-    """Resolution status of a data gap."""
-    
-    OPEN = "open"
-    BACKFILLED = "backfilled"
-    UNRECOVERABLE = "unrecoverable"
+    OPEN = "OPEN"
+    BACKFILLED = "BACKFILLED"
+    UNRECOVERABLE = "UNRECOVERABLE"
 
 
 class RunType(str, Enum):
-    """Type of processing run."""
-    
-    INGESTION = "ingestion"
-    ATTRIBUTION = "attribution"
-    AGGREGATION = "aggregation"
-    EXPORT = "export"
-    RERUN = "rerun"
+    INGESTION = "INGESTION"
+    ATTRIBUTION = "ATTRIBUTION"
+    AGGREGATION = "AGGREGATION"
+    EXPORT = "EXPORT"
+    RERUN = "RERUN"
 
 
 class RunStatus(str, Enum):
-    """Status of a processing run."""
-    
-    RUNNING = "running"
-    SUCCESS = "success"
-    FAILED = "failed"
-    PARTIAL = "partial"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    PARTIAL = "PARTIAL"
