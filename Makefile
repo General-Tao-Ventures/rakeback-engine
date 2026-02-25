@@ -1,5 +1,7 @@
 .PHONY: setup migrate migrate-status migrate-dry generate-models api dev test lint fmt clean docker-up docker-down docker-build
 
+DIRS = app/ db/ rakeback/ worker/ scripts/ tests/
+
 # ── Local development ──────────────────────────────────────
 setup:
 	cd backend && python -m venv .venv && .venv/bin/pip install -e ".[dev]"
@@ -28,13 +30,29 @@ test:
 	cd backend && .venv/bin/pytest
 
 lint:
-	cd backend && .venv/bin/ruff check src/ db/ scripts/ tests/
+	cd backend && .venv/bin/ruff check $(DIRS) config.py
 
 fmt:
-	cd backend && .venv/bin/ruff check --fix src/ db/ scripts/ tests/ && .venv/bin/black src/ db/ scripts/ tests/
+	cd backend && .venv/bin/ruff check --fix $(DIRS) config.py && .venv/bin/black $(DIRS) config.py
 
 clean:
 	rm -rf backend/.venv backend/data/rakeback.db
+
+# ── Workers (run from backend/) ───────────────────────────
+ingest:
+	cd backend && .venv/bin/python -m worker.ingest_blocks $(ARGS)
+
+attribute:
+	cd backend && .venv/bin/python -m worker.run_attribution $(ARGS)
+
+aggregate:
+	cd backend && .venv/bin/python -m worker.run_aggregation $(ARGS)
+
+export:
+	cd backend && .venv/bin/python -m worker.export_ledger $(ARGS)
+
+fetch-prices:
+	cd backend && .venv/bin/python -m worker.fetch_prices $(ARGS)
 
 # ── Docker ─────────────────────────────────────────────────
 docker-build:
