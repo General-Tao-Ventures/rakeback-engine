@@ -3,7 +3,12 @@
 Keeps route-facing methods explicit about their shape instead of returning bare dicts.
 """
 
-from typing import TypedDict
+import sys
+
+if sys.version_info >= (3, 12):
+    from typing import TypedDict
+else:
+    from typing_extensions import TypedDict
 
 from rakeback.services._helpers import JsonDict
 
