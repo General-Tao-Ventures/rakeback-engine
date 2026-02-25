@@ -4,12 +4,13 @@ from logging.config import fileConfig
 
 from alembic import context
 from alembic.config import Config
+from sqlalchemy import MetaData, pool
+from sqlalchemy.engine import Engine
+
 from rakeback.config import Settings, get_settings
 
 # Import models to ensure they're registered with metadata
 from rakeback.models import Base
-from sqlalchemy import MetaData, pool
-from sqlalchemy.engine import Engine
 
 # Alembic Config object
 config: Config = context.config
