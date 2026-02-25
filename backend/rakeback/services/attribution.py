@@ -55,10 +55,6 @@ class AttributionEngine:
     def __init__(self, session: Session) -> None:
         self.session: Session = session
 
-    # ------------------------------------------------------------------
-    # Query helpers (replace repos)
-    # ------------------------------------------------------------------
-
     def _create_run(
         self,
         run_type: RunType,
@@ -162,10 +158,6 @@ class AttributionEngine:
         )
         return {addr: Decimal(str(amt)) for addr, amt in self.session.execute(stmt).all()}
 
-    # ------------------------------------------------------------------
-    # Gap helpers
-    # ------------------------------------------------------------------
-
     def _record_gap(
         self,
         gap_type: GapType,
@@ -239,10 +231,6 @@ class AttributionEngine:
         for gt in GapType:
             results[gt.value] = self._merge_overlapping_gaps(gt, vhk)
         return results
-
-    # ------------------------------------------------------------------
-    # Core attribution
-    # ------------------------------------------------------------------
 
     def run_attribution(
         self,
@@ -453,10 +441,6 @@ class AttributionEngine:
                 return CompletenessFlag.INCOMPLETE
         return CompletenessFlag.COMPLETE
 
-    # ------------------------------------------------------------------
-    # Route-facing methods
-    # ------------------------------------------------------------------
-
     def list_attributions(
         self,
         start: int = 0,
@@ -464,7 +448,6 @@ class AttributionEngine:
         validator_hotkey: str | None = None,
         subnet_id: int | None = None,
     ) -> list[AttributionDict]:
-        """Return attributions as dicts suitable for AttributionResponse."""
         rows: list[BlockAttributions] = self._get_attributions_range(
             start, end, validator_hotkey, subnet_id
         )
@@ -488,7 +471,6 @@ class AttributionEngine:
     def get_stats(
         self, start: int = 0, end: int = 0, validator_hotkey: str | None = None
     ) -> AttributionStatsDict:
-        """Return stats suitable for AttributionStatsResponse."""
         rows: list[BlockAttributions] = self._get_attributions_range(start, end, validator_hotkey)
         if not rows:
             return AttributionStatsDict(
@@ -516,7 +498,6 @@ class AttributionEngine:
     def get_block_detail(
         self, block_number: int, validator_hotkey: str | None = None
     ) -> BlockDetailDict | None:
-        """Return block detail suitable for BlockDetailResponse."""
         conditions: list[ColumnElement[bool]] = [
             BlockAttributions.block_number == block_number,
         ]
@@ -563,7 +544,6 @@ class AttributionEngine:
     def get_attribution_stats(
         self, start_block: int, end_block: int, validator_hotkey: str
     ) -> dict[str, object]:
-        """Comprehensive stats for a block range (used by worker tasks)."""
         rows: list[BlockAttributions] = self._get_attributions_range(
             start_block, end_block, validator_hotkey
         )

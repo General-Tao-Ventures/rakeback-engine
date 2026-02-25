@@ -90,9 +90,6 @@ def session(_route_session: Session) -> Session:
     return _route_session
 
 
-# ---------- seed helpers ----------
-
-
 def _seed_partner(session: Session, name: str = "Test Partner", rate: float = 50.0) -> PartnerUI:
     svc: ParticipantService = ParticipantService(session)
     return svc.create_partner(

@@ -55,10 +55,6 @@ class ExportService:
         self.session: Session = session
         self.export_dir: Path = Path(export_dir)
 
-    # ------------------------------------------------------------------
-    # Query helpers
-    # ------------------------------------------------------------------
-
     def _create_run(self, period: tuple[date, date] | None = None) -> ProcessingRuns:
         run: ProcessingRuns = ProcessingRuns(
             run_id=new_id(),
@@ -101,10 +97,6 @@ class ExportService:
         if conditions:
             stmt = stmt.where(and_(*conditions))
         return list(self.session.scalars(stmt).all())
-
-    # ------------------------------------------------------------------
-    # CSV export (file-based, for workers / CLI)
-    # ------------------------------------------------------------------
 
     _CSV_COLUMNS = [
         "participant_id",
@@ -220,10 +212,6 @@ class ExportService:
             warnings=warnings,
         )
 
-    # ------------------------------------------------------------------
-    # Audit trail export (file-based)
-    # ------------------------------------------------------------------
-
     def export_audit_trail(
         self,
         ledger_entry_id: str,
@@ -274,10 +262,6 @@ class ExportService:
             warnings=warnings,
         )
 
-    # ------------------------------------------------------------------
-    # Payment marking
-    # ------------------------------------------------------------------
-
     def mark_entries_paid(
         self,
         entry_ids: Sequence[str],
@@ -296,10 +280,6 @@ class ExportService:
                 count += 1
         self.session.flush()
         return count
-
-    # ------------------------------------------------------------------
-    # Summary report
-    # ------------------------------------------------------------------
 
     def generate_summary_report(
         self,
@@ -356,12 +336,7 @@ class ExportService:
             },
         )
 
-    # ------------------------------------------------------------------
-    # Route-facing methods
-    # ------------------------------------------------------------------
-
     def list_exports(self) -> ExportListDict:
-        """Return previous export runs."""
         stmt: Select[tuple[ProcessingRuns]] = (
             select(ProcessingRuns)
             .where(ProcessingRuns.run_type == RunType.EXPORT.value)
@@ -392,7 +367,6 @@ class ExportService:
         period_end: str | None = None,
         partner_id: str | None = None,
     ) -> ExportDataDict:
-        """Generate an export and return the data for the API response."""
         p_start: date | None = date.fromisoformat(period_start) if period_start else None
         p_end: date | None = date.fromisoformat(period_end) if period_end else None
 

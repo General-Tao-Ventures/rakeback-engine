@@ -1,5 +1,7 @@
 """Service for fetching and storing TAO price data."""
 
+import json
+import urllib.request
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -23,11 +25,7 @@ class TaoPriceService:
         self.api_key: str = api_key
 
     def fetch_and_store(self, block_number: int | None = None) -> Decimal | None:
-        """Call TaoStats API and store the current price. Returns price_usd or None."""
         try:
-            import json
-            import urllib.request
-
             req: urllib.request.Request = urllib.request.Request(TAOSTATS_PRICE_URL)
             req.add_header("Content-Type", "application/json")
             if self.api_key:
@@ -76,7 +74,6 @@ class TaoPriceService:
             return None
 
     def get_price_at_timestamp(self, ts: datetime) -> Decimal | None:
-        """Look up the closest stored price to a given timestamp."""
         ts_str: str = ts.isoformat()
         stmt_before: Select[tuple[TaoPrices]] = (
             select(TaoPrices)
@@ -100,7 +97,6 @@ class TaoPriceService:
         return Decimal(str(record.price_usd)) if record else None
 
     def get_price_at_block(self, block_number: int) -> Decimal | None:
-        """Look up the closest stored price to a given block."""
         stmt: Select[tuple[TaoPrices]] = (
             select(TaoPrices).where(TaoPrices.block_number == block_number).limit(1)
         )

@@ -107,10 +107,6 @@ class ParticipantService:
     def __init__(self, session: Session) -> None:
         self.session: Session = session
 
-    # ------------------------------------------------------------------
-    # Query helpers (replace repo calls)
-    # ------------------------------------------------------------------
-
     def _get_participant(self, pid: str) -> RakebackParticipants | None:
         return self.session.get(RakebackParticipants, pid)
 
@@ -148,10 +144,6 @@ class ParticipantService:
     def _participant_exists(self, pid: str) -> bool:
         return self._get_participant(pid) is not None
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def list_partners(self, active_only: bool = True) -> list[PartnerUI]:
         participants: list[RakebackParticipants] = (
             self._get_active(date.today()) if active_only else self._get_all_participants()
@@ -166,7 +158,6 @@ class ParticipantService:
         return self._participant_to_ui(p, rules)
 
     def create_partner_from_request(self, data: dict[str, object]) -> PartnerUI:
-        """Create a partner from a PartnerCreate.model_dump() dict."""
         name: str = str(data["name"])
         partner_type: str = str(data.get("type", "named"))
         rakeback_rate: float = float(str(data.get("rakeback_rate", 0) or 0))
@@ -358,10 +349,6 @@ class ParticipantService:
             )
             for e in entries
         ]
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
 
     def _participant_to_ui(
         self,

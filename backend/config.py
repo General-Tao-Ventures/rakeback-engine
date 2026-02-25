@@ -5,6 +5,7 @@ DB selection:
   - DATABASE_URL absent/empty -> SQLite (DB_SQLITE_PATH, default data/rakeback.db)
 """
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -64,8 +65,6 @@ class DatabaseSettings(BaseSettings):
         return path
 
     def _redacted_postgres_dsn(self) -> str:
-        import re
-
         url: str = (self.database_url or "").strip()
         return re.sub(r":([^:@]+)@", r":***@", url) if url else ""
 

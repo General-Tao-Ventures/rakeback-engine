@@ -5,7 +5,6 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import uuid4
 
-# JSON column type — every JSON TEXT column in this DB stores a dict.
 JsonDict = dict[str, object]
 Serializable = Mapping[str, object] | list[Mapping[str, object]]
 
@@ -23,7 +22,6 @@ def today_iso() -> str:
 
 
 def load_json(raw: str | None) -> JsonDict | None:
-    """Deserialize a JSON TEXT column. Always a dict or None in this codebase."""
     if not raw:
         return None
     result: object = json.loads(raw)

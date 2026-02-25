@@ -102,13 +102,11 @@ class ChainClient:
         self._active_netuids_cache: dict[str, list[int]] = {}
 
     def _sub(self) -> object:
-        """Return the substrate handle, raising if not connected."""
         if self._substrate is None:
             raise ConnectionError("Not connected — call connect() first")
         return self._substrate
 
     def connect(self) -> bool:
-        """Connect to the chain. Raises ConnectionError on failure."""
         try:
             from substrateinterface import SubstrateInterface
 

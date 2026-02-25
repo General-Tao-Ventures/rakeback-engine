@@ -7,7 +7,6 @@ from db.connection import get_db as get_db  # noqa: F401 — re-exported for rou
 
 
 def get_api_key(x_api_key: str = Header(default="")) -> str:
-    """Validate API key on mutation endpoints."""
     expected: str | None = get_settings().api_key
     if not expected:
         return ""  # auth disabled when no key configured

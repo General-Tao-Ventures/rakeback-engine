@@ -61,10 +61,6 @@ class IngestionService:
         self.session: Session = session
         self.chain_client: ChainClient = chain_client or ChainClient()
 
-    # ------------------------------------------------------------------
-    # Query helpers
-    # ------------------------------------------------------------------
-
     def _create_run(
         self,
         run_type: RunType,
@@ -233,10 +229,6 @@ class IngestionService:
         self.session.add(gap)
         self.session.flush()
 
-    # ------------------------------------------------------------------
-    # Block ingestion
-    # ------------------------------------------------------------------
-
     def ingest_block_range(
         self,
         start_block: int,
@@ -387,10 +379,6 @@ class IngestionService:
 
         return CompletenessFlag.COMPLETE
 
-    # ------------------------------------------------------------------
-    # Conversion ingestion
-    # ------------------------------------------------------------------
-
     def ingest_conversions(
         self,
         start_block: int,
@@ -456,10 +444,6 @@ class IngestionService:
             completeness_summary={},
             errors=errors,
         )
-
-    # ------------------------------------------------------------------
-    # CSV imports
-    # ------------------------------------------------------------------
 
     def import_snapshot_csv(self, csv_path: Path, validator_hotkey: str) -> IngestionResult:
         run: ProcessingRuns = self._create_run(
@@ -606,10 +590,6 @@ class IngestionService:
             completeness_summary={CompletenessFlag.COMPLETE.value: yields_created},
             errors=errors,
         )
-
-    # ------------------------------------------------------------------
-    # Route-facing methods
-    # ------------------------------------------------------------------
 
     def list_conversions(
         self, start_block: int | None = None, end_block: int | None = None

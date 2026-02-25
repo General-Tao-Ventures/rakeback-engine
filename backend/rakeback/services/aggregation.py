@@ -65,10 +65,6 @@ class AggregationService:
         self.session: Session = session
         self.rules_engine: RulesEngine = rules_engine or RulesEngine(session)
 
-    # ------------------------------------------------------------------
-    # Query helpers
-    # ------------------------------------------------------------------
-
     def _create_run(
         self,
         run_type: RunType,
@@ -165,10 +161,6 @@ class AggregationService:
             )
         )
         return Decimal(str(self.session.scalar(stmt) or 0))
-
-    # ------------------------------------------------------------------
-    # Core aggregation
-    # ------------------------------------------------------------------
 
     def aggregate_daily(
         self, target_date: date, validator_hotkey: str, fail_on_incomplete: bool = False
@@ -395,10 +387,6 @@ class AggregationService:
             block_count=block_range[1] - block_range[0] + 1 if block_range[0] > 0 else 0,
             attribution_count=len(matched),
         )
-
-    # ------------------------------------------------------------------
-    # Route-facing methods
-    # ------------------------------------------------------------------
 
     def list_ledger_entries(
         self,

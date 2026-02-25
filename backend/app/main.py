@@ -21,7 +21,6 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Run migrations and log DB info on startup."""
     settings: Settings = get_settings()
     logger.info("DB: %s", settings.database.db_info_for_logging())
 

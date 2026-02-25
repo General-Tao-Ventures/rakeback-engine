@@ -116,10 +116,6 @@ class RulesEngine:
     def __init__(self, session: Session) -> None:
         self.session: Session = session
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def match_delegator(
         self,
         delegator_address: str,
@@ -127,7 +123,6 @@ class RulesEngine:
         subnet_id: int | None,
         as_of_date: date | None = None,
     ) -> RakebackParticipants | None:
-        """Return the first active participant whose rules match this delegator."""
         check_date: str = (as_of_date or date.today()).isoformat()
         participants: Sequence[RakebackParticipants] = self._get_active_participants(check_date)
         for p in participants:
@@ -141,12 +136,10 @@ class RulesEngine:
         participant: RakebackParticipants,
         addresses: Sequence[str],
     ) -> list[str]:
-        """Filter *addresses* to those matching a participant's rules."""
         rules: list[Rule] = self._rules_list(participant)
         return [a for a in addresses if any(r.matches_address(a) for r in rules)]
 
     def validate_rules(self, participant: RakebackParticipants) -> list[str]:
-        """Return validation errors for a participant's matching_rules (empty = valid)."""
         rules: list[Rule] = self._rules_list(participant)
         if not rules:
             return ["No matching rules defined"]
@@ -158,7 +151,6 @@ class RulesEngine:
         return errors
 
     def get_rules_snapshot(self, as_of: date) -> RulesSnapshot:
-        """Snapshot of all active rules as of a date (for audit trail)."""
         check_date: str = as_of.isoformat()
         participants: Sequence[RakebackParticipants] = self._get_active_participants(check_date)
         return RulesSnapshot(
@@ -175,10 +167,6 @@ class RulesEngine:
                 for p in participants
             ],
         )
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
 
     def _get_active_participants(
         self,
