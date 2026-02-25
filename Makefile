@@ -1,4 +1,4 @@
-.PHONY: setup migrate migrate-status migrate-dry api dev test lint fmt clean docker-up docker-down docker-build
+.PHONY: setup migrate migrate-status migrate-dry generate-models api dev test lint fmt clean docker-up docker-down docker-build
 
 # ── Local development ──────────────────────────────────────
 setup:
@@ -13,6 +13,11 @@ migrate-status:
 migrate-dry:
 	cd backend && .venv/bin/python migrations/migrate.py --dry-run
 
+generate-models:
+	cd backend && .venv/bin/python scripts/generate_models.py
+	cd backend && .venv/bin/ruff check --fix db/models.py || true
+	cd backend && .venv/bin/black db/models.py
+
 api:
 	cd backend && .venv/bin/rakeback-api
 
@@ -23,10 +28,10 @@ test:
 	cd backend && .venv/bin/pytest
 
 lint:
-	cd backend && .venv/bin/ruff check src/ tests/
+	cd backend && .venv/bin/ruff check src/ db/ scripts/ tests/
 
 fmt:
-	cd backend && .venv/bin/ruff check --fix src/ tests/ && .venv/bin/black src/ tests/
+	cd backend && .venv/bin/ruff check --fix src/ db/ scripts/ tests/ && .venv/bin/black src/ db/ scripts/ tests/
 
 clean:
 	rm -rf backend/.venv backend/data/rakeback.db
