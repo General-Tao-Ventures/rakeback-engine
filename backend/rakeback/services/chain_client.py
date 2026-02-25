@@ -257,7 +257,7 @@ class ChainClient:
 
                     for item in alpha_query:
                         try:
-                            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            if isinstance(item, list | tuple) and len(item) >= 2:
                                 key_part = item[0]
                                 value_part = item[1]
                                 if hasattr(value_part, "value"):
@@ -274,7 +274,7 @@ class ChainClient:
                                 if alpha_value > 0:
                                     delegator = f"delegator_{len(delegations)}"
                                     if hasattr(key_part, "value"):
-                                        if isinstance(key_part.value, (list, tuple)):
+                                        if isinstance(key_part.value, list | tuple):
                                             delegator = (
                                                 str(key_part.value[0])
                                                 if key_part.value
@@ -464,7 +464,7 @@ class ChainClient:
                                         tao_amt = Decimal(str(evt_tao))
                                         break
                                     elif (
-                                        isinstance(evt_attrs, (list, tuple)) and len(evt_attrs) >= 2
+                                        isinstance(evt_attrs, list | tuple) and len(evt_attrs) >= 2
                                     ):
                                         tao_amt = Decimal(str(evt_attrs[1]))
                                         break
