@@ -9,10 +9,11 @@ from app.schemas.conversions import (
     ConversionIngestionResponse,
     ConversionResponse,
 )
+from rakeback.services._types import ConversionDetailDict, ConversionDict
 from rakeback.services.chain_client import ChainClient
-from rakeback.services.ingestion import IngestionService
+from rakeback.services.ingestion import IngestionResult, IngestionService
 
-router = APIRouter(prefix="/api", tags=["conversions"])
+router: APIRouter = APIRouter(prefix="/api", tags=["conversions"])
 
 
 @router.get("/conversions", response_model=list[ConversionResponse])
@@ -20,8 +21,8 @@ def list_conversions(
     start_block: int | None = Query(None),
     end_block: int | None = Query(None),
     db: Session = Depends(get_db),
-) -> list[ConversionResponse]:
-    svc = IngestionService(db)
+) -> list[ConversionDict]:
+    svc: IngestionService = IngestionService(db)
     return svc.list_conversions(start_block, end_block)
 
 
@@ -29,9 +30,9 @@ def list_conversions(
 def conversion_detail(
     conversion_id: str,
     db: Session = Depends(get_db),
-) -> ConversionDetailResponse:
-    svc = IngestionService(db)
-    result = svc.get_conversion_detail(conversion_id)
+) -> ConversionDetailDict:
+    svc: IngestionService = IngestionService(db)
+    result: ConversionDetailDict | None = svc.get_conversion_detail(conversion_id)
     if not result:
         raise HTTPException(404, detail=f"Conversion {conversion_id} not found")
     return result
@@ -45,10 +46,10 @@ def trigger_conversion_ingestion(
     db: Session = Depends(get_db),
     _key: str = Depends(get_api_key),
 ) -> ConversionIngestionResponse:
-    chain_client = ChainClient()
+    chain_client: ChainClient = ChainClient()
     chain_client.connect()
-    svc = IngestionService(db, chain_client)
-    result = svc.ingest_conversions(start_block, end_block, validator_hotkey)
+    svc: IngestionService = IngestionService(db, chain_client)
+    result: IngestionResult = svc.ingest_conversions(start_block, end_block, validator_hotkey)
 
     return ConversionIngestionResponse(
         run_id=result.run_id,

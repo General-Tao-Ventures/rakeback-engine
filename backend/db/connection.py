@@ -4,13 +4,13 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from config import get_settings
+from config import Settings, get_settings
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 _engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
@@ -21,9 +21,9 @@ def get_engine() -> Engine:
     global _engine
 
     if _engine is None:
-        settings = get_settings()
-        url = settings.database.url
-        opts: dict = {"echo": settings.debug}
+        settings: Settings = get_settings()
+        url: str = settings.database.url
+        opts: dict[str, object] = {"echo": settings.debug}
 
         if settings.database._use_postgres():
             opts.update(
@@ -38,8 +38,8 @@ def get_engine() -> Engine:
         if not settings.database._use_postgres():
 
             @event.listens_for(_engine, "connect")
-            def _set_sqlite_pragma(dbapi_conn, connection_record):
-                cur = dbapi_conn.cursor()
+            def _set_sqlite_pragma(dbapi_conn: object, connection_record: object) -> None:
+                cur = dbapi_conn.cursor()  # type: ignore[attr-defined]
                 cur.execute("PRAGMA foreign_keys=ON")
                 cur.execute("PRAGMA journal_mode=WAL")
                 cur.execute("PRAGMA busy_timeout=30000")
@@ -66,7 +66,7 @@ def get_session_factory() -> sessionmaker[Session]:
 @contextmanager
 def get_session() -> Generator[Session, None, None]:
     """Context-managed session with commit/rollback."""
-    session = get_session_factory()()
+    session: Session = get_session_factory()()
     try:
         yield session
         session.commit()
@@ -79,7 +79,7 @@ def get_session() -> Generator[Session, None, None]:
 
 def get_db() -> Generator[Session, None, None]:
     """FastAPI dependency that yields a DB session."""
-    session = get_session_factory()()
+    session: Session = get_session_factory()()
     try:
         yield session
         session.commit()

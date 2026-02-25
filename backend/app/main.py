@@ -2,6 +2,7 @@
 
 import logging
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,15 +13,16 @@ from fastapi.responses import JSONResponse
 
 from app.routes import attributions, conversions, exports, partners, rakeback
 from app.routes.health import get_db_info
-from config import get_settings
+from config import Settings, get_settings
+from rakeback.services._types import DbInfoDict
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI):
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Run migrations and log DB info on startup."""
-    settings = get_settings()
+    settings: Settings = get_settings()
     logger.info("DB: %s", settings.database.db_info_for_logging())
 
     # Run pending migrations
@@ -31,7 +33,7 @@ async def _lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(
+    app: FastAPI = FastAPI(
         title="Validator Rakeback Engine",
         version="0.2.0",
         lifespan=_lifespan,
@@ -47,7 +49,7 @@ def create_app() -> FastAPI:
     )
 
     @app.exception_handler(Exception)
-    async def _on_error(request: Request, exc: Exception):
+    async def _on_error(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled: %s", exc)
         return JSONResponse(
             status_code=500,
@@ -55,11 +57,11 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/health")
-    def health():
+    def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/health/db")
-    def health_db():
+    def health_db() -> DbInfoDict:
         return get_db_info()
 
     app.include_router(partners.router)
@@ -71,12 +73,12 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
+app: FastAPI = create_app()
 
 
 def start() -> None:
     """Entry point for rakeback-api."""
-    backend_root = Path(__file__).resolve().parent.parent
+    backend_root: Path = Path(__file__).resolve().parent.parent
     os.chdir(backend_root)
 
     from dotenv import load_dotenv
@@ -85,7 +87,7 @@ def start() -> None:
         if candidate.exists():
             load_dotenv(candidate, override=False)
 
-    reload = os.environ.get("RAKEBACK_RELOAD", "false").lower() in ("1", "true", "yes")
+    reload: bool = os.environ.get("RAKEBACK_RELOAD", "false").lower() in ("1", "true", "yes")
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",

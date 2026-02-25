@@ -5,14 +5,15 @@ from sqlalchemy.orm import Session
 
 from app.dependencies import get_api_key, get_db
 from app.schemas.exports import ExportListResponse
+from rakeback.services._types import ExportDataDict, ExportListDict
 from rakeback.services.export import ExportService
 
-router = APIRouter(prefix="/api", tags=["exports"])
+router: APIRouter = APIRouter(prefix="/api", tags=["exports"])
 
 
 @router.get("/exports", response_model=ExportListResponse)
-def list_exports(db: Session = Depends(get_db)) -> ExportListResponse:
-    svc = ExportService(db)
+def list_exports(db: Session = Depends(get_db)) -> ExportListDict:
+    svc: ExportService = ExportService(db)
     return svc.list_exports()
 
 
@@ -24,6 +25,6 @@ def download_export(
     partner_id: str | None = Query(None),
     db: Session = Depends(get_db),
     _key: str = Depends(get_api_key),
-):
-    svc = ExportService(db)
+) -> ExportDataDict:
+    svc: ExportService = ExportService(db)
     return svc.generate_export(format, period_start, period_end, partner_id)

@@ -2,10 +2,9 @@
 
 from datetime import date
 from decimal import Decimal
-from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import select, and_
+from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
 from db.enums import (
@@ -18,7 +17,8 @@ from db.models import (
     RakebackParticipants,
     RuleChangeLog,
 )
-from rakeback.services._helpers import dump_json, load_json, new_id, now_iso
+from rakeback.services._helpers import JsonDict, dump_json, load_json, new_id, now_iso
+from rakeback.services._types import ChangeLogEntry, PartnerUI, RuleUI
 
 
 def _rule_id() -> str:
@@ -26,18 +26,29 @@ def _rule_id() -> str:
 
 
 def _participant_id_from_name(name: str) -> str:
-    base = name.lower().replace(" ", "-").replace("_", "-")
+    base: str = name.lower().replace(" ", "-").replace("_", "-")
     return f"partner-{base}"
 
 
-def eligibility_rules_to_matching_rules(rules: list[EligibilityRules]) -> dict:
-    """Convert EligibilityRule rows → matching_rules dict for the rules engine."""
-    engine_rules: list[dict] = []
+def _load_config(raw: object) -> JsonDict:
+    """Load a rule config field, always returning a dict."""
+    if isinstance(raw, str):
+        return load_json(raw) or {}
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def eligibility_rules_to_matching_rules(
+    rules: list[EligibilityRules],
+) -> dict[str, object]:
+    """Convert EligibilityRule rows -> matching_rules dict for the rules engine."""
+    engine_rules: list[dict[str, object]] = []
     for r in rules:
-        config = load_json(r.config) if isinstance(r.config, str) else (r.config or {})
-        rt = r.rule_type
+        config: JsonDict = _load_config(r.config)
+        rt: str = r.rule_type
         if rt == "wallet":
-            addresses = config.get("addresses") or (
+            addresses: object = config.get("addresses") or (
                 [config["wallet"]] if config.get("wallet") else []
             )
             if addresses:
@@ -55,11 +66,9 @@ def eligibility_rules_to_matching_rules(rules: list[EligibilityRules]) -> dict:
                 }
             )
         elif rt == "subnet-filter":
-            subnet_ids = config.get("subnet_ids") or config.get("subnetIds") or []
-            delegation_types = (
-                config.get("delegation_types")
-                or config.get("delegationTypes")
-                or ["subnet_dtao"]
+            subnet_ids: object = config.get("subnet_ids") or config.get("subnetIds") or []
+            delegation_types: object = (
+                config.get("delegation_types") or config.get("delegationTypes") or ["subnet_dtao"]
             )
             if subnet_ids:
                 engine_rules.append({"type": "SUBNET", "subnet_ids": subnet_ids})
@@ -77,8 +86,8 @@ def eligibility_rules_to_matching_rules(rules: list[EligibilityRules]) -> dict:
 def _build_eligibility_rule(
     participant_id: str,
     rule_type: str,
-    config: dict,
-    applies_from_block: Optional[int] = None,
+    config: dict[str, object],
+    applies_from_block: int | None = None,
     created_by: str = "system",
 ) -> EligibilityRules:
     return EligibilityRules(
@@ -95,19 +104,19 @@ def _build_eligibility_rule(
 class ParticipantService:
     """Service for partner CRUD with rule and audit support."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    def __init__(self, session: Session) -> None:
+        self.session: Session = session
 
     # ------------------------------------------------------------------
     # Query helpers (replace repo calls)
     # ------------------------------------------------------------------
 
-    def _get_participant(self, pid: str) -> Optional[RakebackParticipants]:
+    def _get_participant(self, pid: str) -> RakebackParticipants | None:
         return self.session.get(RakebackParticipants, pid)
 
     def _get_active(self, as_of_date: date) -> list[RakebackParticipants]:
-        d = as_of_date.isoformat()
-        stmt = (
+        d: str = as_of_date.isoformat()
+        stmt: Select[tuple[RakebackParticipants]] = (
             select(RakebackParticipants)
             .where(
                 and_(
@@ -123,11 +132,13 @@ class ParticipantService:
         return list(self.session.scalars(stmt).all())
 
     def _get_all_participants(self) -> list[RakebackParticipants]:
-        stmt = select(RakebackParticipants).order_by(RakebackParticipants.id)
+        stmt: Select[tuple[RakebackParticipants]] = select(RakebackParticipants).order_by(
+            RakebackParticipants.id
+        )
         return list(self.session.scalars(stmt).all())
 
     def _get_rules(self, participant_id: str) -> list[EligibilityRules]:
-        stmt = (
+        stmt: Select[tuple[EligibilityRules]] = (
             select(EligibilityRules)
             .where(EligibilityRules.participant_id == participant_id)
             .order_by(EligibilityRules.created_at)
@@ -141,31 +152,31 @@ class ParticipantService:
     # Public API
     # ------------------------------------------------------------------
 
-    def list_partners(self, active_only: bool = True) -> list[dict]:
-        participants = (
+    def list_partners(self, active_only: bool = True) -> list[PartnerUI]:
+        participants: list[RakebackParticipants] = (
             self._get_active(date.today()) if active_only else self._get_all_participants()
         )
         return [self._participant_to_ui(p) for p in participants]
 
-    def get_partner(self, pid: str) -> Optional[dict]:
-        p = self._get_participant(pid)
+    def get_partner(self, pid: str) -> PartnerUI | None:
+        p: RakebackParticipants | None = self._get_participant(pid)
         if not p:
             return None
-        rules = self._get_rules(pid)
+        rules: list[EligibilityRules] = self._get_rules(pid)
         return self._participant_to_ui(p, rules)
 
-    def create_partner_from_request(self, data: dict) -> dict:
+    def create_partner_from_request(self, data: dict[str, object]) -> PartnerUI:
         """Create a partner from a PartnerCreate.model_dump() dict."""
-        name = data["name"]
-        partner_type = data.get("type", "named")
-        rakeback_rate = data.get("rakeback_rate", 0)
-        priority = data.get("priority", 1)
-        payout_address = data.get("payout_address", "")
-        apply_from_date = data.get("apply_from_date")
-        apply_from_block = data.get("apply_from_block")
+        name: str = str(data["name"])
+        partner_type: str = str(data.get("type", "named"))
+        rakeback_rate: float = float(str(data.get("rakeback_rate", 0) or 0))
+        priority: int = int(str(data.get("priority", 1) or 1))
+        payout_address: str = str(data.get("payout_address", "") or "")
+        apply_from_date: object = data.get("apply_from_date")
+        apply_from_block: object = data.get("apply_from_block")
 
         # Build rules from flat request fields
-        rules: list[dict] = []
+        rules: list[dict[str, object]] = []
         if data.get("wallet_address"):
             rules.append(
                 {
@@ -209,7 +220,9 @@ class ParticipantService:
                 }
             )
 
-        effective_from = date.fromisoformat(apply_from_date) if apply_from_date else date.today()
+        effective_from: date = (
+            date.fromisoformat(str(apply_from_date)) if apply_from_date else date.today()
+        )
         return self.create_partner(
             name=name,
             partner_type=partner_type,
@@ -218,7 +231,7 @@ class ParticipantService:
             payout_address=payout_address,
             rules=rules,
             effective_from=effective_from,
-            applies_from_block=apply_from_block,
+            applies_from_block=int(str(apply_from_block)) if apply_from_block else None,
         )
 
     def create_partner(
@@ -228,23 +241,23 @@ class ParticipantService:
         rakeback_rate: float,
         priority: int = 1,
         payout_address: str = "",
-        rules: Optional[list[dict]] = None,
-        effective_from: Optional[date] = None,
-        applies_from_block: Optional[int] = None,
+        rules: list[dict[str, object]] | None = None,
+        effective_from: date | None = None,
+        applies_from_block: int | None = None,
         created_by: str = "system",
-    ) -> dict:
-        pid = _participant_id_from_name(name)
+    ) -> PartnerUI:
+        pid: str = _participant_id_from_name(name)
         if self._participant_exists(pid):
-            from datetime import datetime
+            from datetime import UTC, datetime
 
-            pid = f"{pid}-{int(datetime.utcnow().timestamp())}"
+            pid = f"{pid}-{int(datetime.now(UTC).timestamp())}"
 
-        pt = PartnerType(partner_type.replace("-", "_").upper())
-        effective = effective_from or date.today()
-        block = applies_from_block or 0
-        ts = now_iso()
+        pt: PartnerType = PartnerType(partner_type.replace("-", "_").upper())
+        effective: date = effective_from or date.today()
+        block: int = applies_from_block or 0
+        ts: str = now_iso()
 
-        participant = RakebackParticipants(
+        participant: RakebackParticipants = RakebackParticipants(
             id=pid,
             name=name,
             type=ParticipantType.PARTNER.value,
@@ -263,14 +276,14 @@ class ParticipantService:
 
         rule_entities: list[EligibilityRules] = []
         for r in rules or []:
-            entity = self._create_rule_from_ui(participant.id, r, block, created_by)
+            entity: EligibilityRules | None = self._create_rule_from_ui(
+                participant.id, r, block, created_by
+            )
             if entity:
                 self.session.add(entity)
                 rule_entities.append(entity)
 
-        participant.matching_rules = dump_json(
-            eligibility_rules_to_matching_rules(rule_entities)
-        )
+        participant.matching_rules = dump_json(eligibility_rules_to_matching_rules(rule_entities))
         self.session.flush()
 
         self._log_change(
@@ -281,27 +294,27 @@ class ParticipantService:
             applies_from_block=block,
             user=created_by,
         )
-        return self.get_partner(pid) or {}
+        return self.get_partner(pid) or PartnerUI()
 
     def update_partner(
         self,
         pid: str,
-        updates: dict,
+        updates: dict[str, object],
         created_by: str = "system",
-    ) -> Optional[dict]:
-        p = self._get_participant(pid)
+    ) -> PartnerUI | None:
+        p: RakebackParticipants | None = self._get_participant(pid)
         if not p:
             return None
         if "name" in updates:
-            p.name = updates["name"]
+            p.name = str(updates["name"])
         if "rakeback_rate" in updates:
-            p.rakeback_percentage = float(Decimal(str(updates["rakeback_rate"] / 100)))
+            p.rakeback_percentage = float(Decimal(str(float(str(updates["rakeback_rate"])) / 100)))
         if "priority" in updates:
-            p.priority = updates["priority"]
+            p.priority = int(str(updates["priority"]))
         if "payout_address" in updates:
-            p.payout_address = updates["payout_address"]
+            p.payout_address = str(updates["payout_address"])
         if "partner_type" in updates:
-            pt = updates["partner_type"].replace("-", "_").upper()
+            pt: str = str(updates["partner_type"]).replace("-", "_").upper()
             p.partner_type = PartnerType(pt).value
         p.updated_at = now_iso()
         self.session.flush()
@@ -310,39 +323,39 @@ class ParticipantService:
     def add_rule(
         self,
         participant_id: str,
-        rule: dict,
+        rule: dict[str, object],
         created_by: str = "system",
-    ) -> Optional[dict]:
-        p = self._get_participant(participant_id)
+    ) -> RuleUI | None:
+        p: RakebackParticipants | None = self._get_participant(participant_id)
         if not p:
             return None
-        entity = self._create_rule_from_ui(participant_id, rule, 0, created_by)
+        entity: EligibilityRules | None = self._create_rule_from_ui(
+            participant_id, rule, 0, created_by
+        )
         if not entity:
             return None
         self.session.add(entity)
-        all_rules = self._get_rules(participant_id)
+        all_rules: list[EligibilityRules] = self._get_rules(participant_id)
         all_rules.append(entity)
         p.matching_rules = dump_json(eligibility_rules_to_matching_rules(all_rules))
         p.updated_at = now_iso()
         self.session.flush()
         return self._rule_to_ui(entity)
 
-    def get_rule_change_log(self, limit: int = 100) -> list[dict]:
-        stmt = (
-            select(RuleChangeLog)
-            .order_by(RuleChangeLog.timestamp.desc())
-            .limit(limit)
+    def get_rule_change_log(self, limit: int = 100) -> list[ChangeLogEntry]:
+        stmt: Select[tuple[RuleChangeLog]] = (
+            select(RuleChangeLog).order_by(RuleChangeLog.timestamp.desc()).limit(limit)
         )
-        entries = self.session.scalars(stmt).all()
+        entries: list[RuleChangeLog] = list(self.session.scalars(stmt).all())
         return [
-            {
-                "timestamp": (e.timestamp or "")[:19].replace("T", " "),
-                "user": e.user,
-                "action": e.action,
-                "partner": e.partner_name,
-                "details": e.details,
-                "appliesFromBlock": e.applies_from_block,
-            }
+            ChangeLogEntry(
+                timestamp=(e.timestamp or "")[:19].replace("T", " "),
+                user=e.user,
+                action=e.action,
+                partner=e.partner_name,
+                details=e.details,
+                appliesFromBlock=e.applies_from_block,
+            )
             for e in entries
         ]
 
@@ -353,22 +366,25 @@ class ParticipantService:
     def _participant_to_ui(
         self,
         p: RakebackParticipants,
-        rules: Optional[list[EligibilityRules]] = None,
-    ) -> dict:
+        rules: list[EligibilityRules] | None = None,
+    ) -> PartnerUI:
         if rules is None:
             rules = self._get_rules(p.id)
 
-        pt_val = p.partner_type or PartnerType.NAMED.value
-        partner_type_ui = {"NAMED": "Named", "TAG_BASED": "Tag-based", "HYBRID": "Hybrid"}.get(
+        pt_val: str = p.partner_type or PartnerType.NAMED.value
+        partner_type_ui: str = {"NAMED": "Named", "TAG_BASED": "Tag-based", "HYBRID": "Hybrid"}.get(
             pt_val, "Named"
         )
 
-        wallet = None
-        memo_tag = None
+        wallet: object = None
+        memo_tag: object = None
         for r in rules:
-            cfg = load_json(r.config) if isinstance(r.config, str) else (r.config or {})
+            cfg: JsonDict = _load_config(r.config)
             if r.rule_type == "wallet":
-                wallet = cfg.get("wallet") or (cfg.get("addresses") or [None])[0]
+                addrs: object = cfg.get("addresses")
+                wallet = cfg.get("wallet") or (
+                    addrs[0] if isinstance(addrs, list) and addrs else None
+                )
                 if wallet:
                     break
             elif r.rule_type == "memo":
@@ -376,51 +392,57 @@ class ParticipantService:
                 if memo_tag:
                     break
 
-        eff_to = p.effective_to
-        status = "active" if (eff_to is None or eff_to >= date.today().isoformat()) else "inactive"
+        eff_to: str | None = p.effective_to
+        status: str = (
+            "active" if (eff_to is None or eff_to >= date.today().isoformat()) else "inactive"
+        )
 
-        return {
-            "id": p.id,
-            "name": p.name,
-            "type": partner_type_ui,
-            "rakebackRate": float(p.rakeback_percentage) * 100,
-            "priority": p.priority,
-            "status": status,
-            "createdBy": "system",
-            "createdDate": (p.created_at or "")[:10],
-            "walletAddress": wallet,
-            "memoTag": memo_tag,
-            "applyFromDate": p.effective_from,
-            "payoutAddress": p.payout_address,
-            "rules": [self._rule_to_ui(r) for r in rules],
-        }
+        return PartnerUI(
+            id=p.id,
+            name=p.name,
+            type=partner_type_ui,
+            rakebackRate=float(p.rakeback_percentage) * 100,
+            priority=p.priority,
+            status=status,
+            createdBy="system",
+            createdDate=(p.created_at or "")[:10],
+            walletAddress=wallet,
+            memoTag=memo_tag,
+            applyFromDate=p.effective_from,
+            payoutAddress=p.payout_address,
+            rules=[self._rule_to_ui(r) for r in rules],
+        )
 
     @staticmethod
-    def _rule_to_ui(r: EligibilityRules) -> dict:
-        cfg = load_json(r.config) if isinstance(r.config, str) else (r.config or {})
-        return {
-            "id": r.id,
-            "partnerId": r.participant_id,
-            "type": r.rule_type,
-            "config": cfg,
-            "appliesFromBlock": r.applies_from_block or 0,
-            "createdAt": r.created_at or "",
-            "createdBy": r.created_by,
-        }
+    def _rule_to_ui(r: EligibilityRules) -> RuleUI:
+        cfg: JsonDict = _load_config(r.config)
+        return RuleUI(
+            id=r.id,
+            partnerId=r.participant_id,
+            type=r.rule_type,
+            config=cfg or None,
+            appliesFromBlock=r.applies_from_block or 0,
+            createdAt=r.created_at or "",
+            createdBy=r.created_by,
+        )
 
     def _create_rule_from_ui(
         self,
         participant_id: str,
-        rule: dict,
+        rule: dict[str, object],
         default_block: int,
         created_by: str,
-    ) -> Optional[EligibilityRules]:
-        rule_type = rule.get("type", "wallet")
-        config = rule.get("config", {})
-        block = rule.get("appliesFromBlock") or rule.get("applies_from_block") or default_block
+    ) -> EligibilityRules | None:
+        rule_type: str = str(rule.get("type", "wallet"))
+        config_raw: object = rule.get("config", {})
+        config: dict[str, object] = config_raw if isinstance(config_raw, dict) else {}
+        block_val: object = (
+            rule.get("appliesFromBlock") or rule.get("applies_from_block") or default_block
+        )
+        block: int = int(str(block_val)) if block_val else default_block
 
         if rule_type == "wallet":
-            wallet = config.get("wallet") or rule.get("walletAddress")
+            wallet: object = config.get("wallet") or rule.get("walletAddress")
             if not wallet:
                 return None
             return _build_eligibility_rule(
@@ -431,10 +453,8 @@ class ParticipantService:
                 created_by=created_by,
             )
         if rule_type == "memo":
-            memo = (
-                config.get("memo_string")
-                or config.get("memoString")
-                or rule.get("memoKeyword")
+            memo: object = (
+                config.get("memo_string") or config.get("memoString") or rule.get("memoKeyword")
             )
             if not memo:
                 return None
@@ -476,7 +496,7 @@ class ParticipantService:
         applies_from_block: int,
         user: str = "system",
     ) -> None:
-        entry = RuleChangeLog(
+        entry: RuleChangeLog = RuleChangeLog(
             id=new_id(),
             timestamp=now_iso(),
             user=user,

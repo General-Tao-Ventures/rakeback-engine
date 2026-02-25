@@ -11,10 +11,10 @@ class LedgerEntryResponse(CamelModel):
     participant_id: str
     participant_type: str
     validator_hotkey: str
-    gross_dtao_attributed: str
-    gross_tao_converted: str
+    gross_dtao_attributed: float
+    gross_tao_converted: float
     rakeback_percentage: float
-    tao_owed: str
+    tao_owed: float
     payment_status: str
     payment_tx_hash: str | None
     payment_timestamp: str | None

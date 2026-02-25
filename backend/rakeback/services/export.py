@@ -2,14 +2,14 @@
 
 import csv
 import io
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional, Sequence
 
 import structlog
-from sqlalchemy import select, and_
+from sqlalchemy import ColumnElement, Select, and_, select
 from sqlalchemy.orm import Session
 
 from db.enums import (
@@ -21,8 +21,16 @@ from db.enums import (
 )
 from db.models import ProcessingRuns, RakebackLedgerEntries
 from rakeback.services._helpers import new_id, now_iso
+from rakeback.services._types import (
+    ExportDataDict,
+    ExportListDict,
+    ExportRunDict,
+    SummaryPeriod,
+    SummaryReportDict,
+    SummaryTotals,
+)
 
-logger = structlog.get_logger(__name__)
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 class ExportError(Exception):
@@ -43,16 +51,16 @@ class ExportResult:
 class ExportService:
     """Exports rakeback data to CSV / JSON and manages payment marking."""
 
-    def __init__(self, session: Session, export_dir: str = "exports"):
-        self.session = session
-        self.export_dir = Path(export_dir)
+    def __init__(self, session: Session, export_dir: str = "exports") -> None:
+        self.session: Session = session
+        self.export_dir: Path = Path(export_dir)
 
     # ------------------------------------------------------------------
     # Query helpers
     # ------------------------------------------------------------------
 
-    def _create_run(self, period: Optional[tuple[date, date]] = None) -> ProcessingRuns:
-        run = ProcessingRuns(
+    def _create_run(self, period: tuple[date, date] | None = None) -> ProcessingRuns:
+        run: ProcessingRuns = ProcessingRuns(
             run_id=new_id(),
             run_type=RunType.EXPORT.value,
             started_at=now_iso(),
@@ -67,23 +75,19 @@ class ExportService:
 
     def _get_entries(
         self,
-        period_type: Optional[PeriodType] = None,
-        period_start: Optional[date] = None,
-        period_end: Optional[date] = None,
-        participant_id: Optional[str] = None,
+        period_type: PeriodType | None = None,
+        period_start: date | None = None,
+        period_end: date | None = None,
+        participant_id: str | None = None,
         include_incomplete: bool = True,
     ) -> list[RakebackLedgerEntries]:
-        conditions: list = []
+        conditions: list[ColumnElement[bool]] = []
         if period_type:
             conditions.append(RakebackLedgerEntries.period_type == period_type.value)
         if period_start:
-            conditions.append(
-                RakebackLedgerEntries.period_start >= period_start.isoformat()
-            )
+            conditions.append(RakebackLedgerEntries.period_start >= period_start.isoformat())
         if period_end:
-            conditions.append(
-                RakebackLedgerEntries.period_end <= period_end.isoformat()
-            )
+            conditions.append(RakebackLedgerEntries.period_end <= period_end.isoformat())
         if participant_id:
             conditions.append(RakebackLedgerEntries.participant_id == participant_id)
         if not include_incomplete:
@@ -91,7 +95,7 @@ class ExportService:
                 RakebackLedgerEntries.completeness_flag == CompletenessFlag.COMPLETE.value
             )
 
-        stmt = select(RakebackLedgerEntries).order_by(
+        stmt: Select[tuple[RakebackLedgerEntries]] = select(RakebackLedgerEntries).order_by(
             RakebackLedgerEntries.period_start.desc()
         )
         if conditions:
@@ -125,14 +129,14 @@ class ExportService:
         period_type: PeriodType,
         period_start: date,
         period_end: date,
-        output_path: Optional[Path] = None,
-        participant_ids: Optional[Sequence[str]] = None,
+        output_path: Path | None = None,
+        participant_ids: Sequence[str] | None = None,
         include_incomplete: bool = True,
     ) -> ExportResult:
-        run = self._create_run((period_start, period_end))
+        run: ProcessingRuns = self._create_run((period_start, period_end))
 
         if output_path is None:
-            filename = (
+            filename: str = (
                 f"rakeback_{period_type.value}_{period_start.isoformat()}"
                 f"_{period_end.isoformat()}.csv"
             )
@@ -140,18 +144,20 @@ class ExportService:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        entries = self._get_entries(
-            period_type, period_start, period_end,
+        entries: list[RakebackLedgerEntries] = self._get_entries(
+            period_type,
+            period_start,
+            period_end,
             include_incomplete=include_incomplete,
         )
         if participant_ids:
-            ids_set = set(participant_ids)
+            ids_set: set[str] = set(participant_ids)
             entries = [e for e in entries if e.participant_id in ids_set]
 
         warnings: list[str] = []
-        complete_count = 0
-        incomplete_count = 0
-        total_tao = Decimal(0)
+        complete_count: int = 0
+        incomplete_count: int = 0
+        total_tao: Decimal = Decimal(0)
 
         with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -162,9 +168,8 @@ class ExportService:
             writer.writerow([f"# Run ID: {run.run_id}"])
             writer.writerow([])
 
-            incomplete = [
-                e for e in entries
-                if e.completeness_flag != CompletenessFlag.COMPLETE.value
+            incomplete: list[RakebackLedgerEntries] = [
+                e for e in entries if e.completeness_flag != CompletenessFlag.COMPLETE.value
             ]
             if incomplete:
                 writer.writerow(["# WARNING: This export contains incomplete data"])
@@ -175,23 +180,25 @@ class ExportService:
             writer.writerow(self._CSV_COLUMNS)
 
             for entry in entries:
-                writer.writerow([
-                    entry.participant_id,
-                    entry.participant_type,
-                    entry.validator_hotkey,
-                    entry.period_start,
-                    entry.period_end,
-                    str(entry.gross_dtao_attributed),
-                    str(entry.gross_tao_converted),
-                    str(entry.rakeback_percentage),
-                    str(entry.tao_owed),
-                    entry.payment_status,
-                    entry.payment_tx_hash or "",
-                    entry.completeness_flag,
-                    entry.block_count,
-                    entry.attribution_count,
-                    entry.id,
-                ])
+                writer.writerow(
+                    [
+                        entry.participant_id,
+                        entry.participant_type,
+                        entry.validator_hotkey,
+                        entry.period_start,
+                        entry.period_end,
+                        str(entry.gross_dtao_attributed),
+                        str(entry.gross_tao_converted),
+                        str(entry.rakeback_percentage),
+                        str(entry.tao_owed),
+                        entry.payment_status,
+                        entry.payment_tx_hash or "",
+                        entry.completeness_flag,
+                        entry.block_count,
+                        entry.attribution_count,
+                        entry.id,
+                    ]
+                )
                 total_tao += Decimal(str(entry.tao_owed))
                 if entry.completeness_flag == CompletenessFlag.COMPLETE.value:
                     complete_count += 1
@@ -220,16 +227,17 @@ class ExportService:
     def export_audit_trail(
         self,
         ledger_entry_id: str,
-        output_path: Optional[Path] = None,
+        output_path: Path | None = None,
     ) -> ExportResult:
-        entry = self.session.get(RakebackLedgerEntries, ledger_entry_id)
+        entry: RakebackLedgerEntries | None = self.session.get(
+            RakebackLedgerEntries, ledger_entry_id
+        )
         if not entry:
             raise ExportError(f"Ledger entry {ledger_entry_id} not found")
 
         if output_path is None:
-            filename = (
-                f"audit_trail_{entry.participant_id}"
-                f"_{entry.period_start}_{entry.id[:8]}.csv"
+            filename: str = (
+                f"audit_trail_{entry.participant_id}_{entry.period_start}_{entry.id[:8]}.csv"
             )
             output_path = self.export_dir / filename
 
@@ -255,7 +263,7 @@ class ExportService:
             writer.writerow(["Block Count", entry.block_count])
             writer.writerow(["Attribution Count", entry.attribution_count])
 
-        is_complete = entry.completeness_flag == CompletenessFlag.COMPLETE.value
+        is_complete: bool = entry.completeness_flag == CompletenessFlag.COMPLETE.value
         return ExportResult(
             run_id="",
             output_path=output_path,
@@ -274,12 +282,12 @@ class ExportService:
         self,
         entry_ids: Sequence[str],
         payment_tx_hash: str,
-        payment_timestamp: Optional[str] = None,
+        payment_timestamp: str | None = None,
     ) -> int:
-        ts = payment_timestamp or now_iso()
-        count = 0
+        ts: str = payment_timestamp or now_iso()
+        count: int = 0
         for eid in entry_ids:
-            entry = self.session.get(RakebackLedgerEntries, eid)
+            entry: RakebackLedgerEntries | None = self.session.get(RakebackLedgerEntries, eid)
             if entry and entry.payment_status != PaymentStatus.PAID.value:
                 entry.payment_status = PaymentStatus.PAID.value
                 entry.payment_tx_hash = payment_tx_hash
@@ -298,12 +306,18 @@ class ExportService:
         period_type: PeriodType,
         period_start: date,
         period_end: date,
-    ) -> dict:
-        entries = self._get_entries(period_type, period_start, period_end)
+    ) -> SummaryReportDict:
+        entries: list[RakebackLedgerEntries] = self._get_entries(
+            period_type, period_start, period_end
+        )
 
-        total_dtao = sum(Decimal(str(e.gross_dtao_attributed)) for e in entries)
-        total_tao_converted = sum(Decimal(str(e.gross_tao_converted)) for e in entries)
-        total_tao_owed = sum(Decimal(str(e.tao_owed)) for e in entries)
+        total_dtao: Decimal = sum(
+            (Decimal(str(e.gross_dtao_attributed)) for e in entries), Decimal(0)
+        )
+        total_tao_converted: Decimal = sum(
+            (Decimal(str(e.gross_tao_converted)) for e in entries), Decimal(0)
+        )
+        total_tao_owed: Decimal = sum((Decimal(str(e.tao_owed)) for e in entries), Decimal(0))
 
         by_status: dict[str, int] = {}
         for e in entries:
@@ -314,7 +328,7 @@ class ExportService:
             flag = e.completeness_flag
             by_completeness[flag] = by_completeness.get(flag, 0) + 1
 
-        by_participant: dict[str, dict] = {}
+        by_participant: dict[str, dict[str, Decimal]] = {}
         for e in entries:
             pid = e.participant_id
             if pid not in by_participant:
@@ -322,75 +336,73 @@ class ExportService:
             by_participant[pid]["dtao"] += Decimal(str(e.gross_dtao_attributed))
             by_participant[pid]["tao_owed"] += Decimal(str(e.tao_owed))
 
-        return {
-            "period": {
-                "type": period_type.value,
-                "start": period_start.isoformat(),
-                "end": period_end.isoformat(),
-            },
-            "totals": {
-                "entries": len(entries),
-                "gross_dtao_attributed": str(total_dtao),
-                "gross_tao_converted": str(total_tao_converted),
-                "total_tao_owed": str(total_tao_owed),
-            },
-            "by_payment_status": by_status,
-            "by_completeness": by_completeness,
-            "by_participant": {
+        return SummaryReportDict(
+            period=SummaryPeriod(
+                type=period_type.value,
+                start=period_start.isoformat(),
+                end=period_end.isoformat(),
+            ),
+            totals=SummaryTotals(
+                entries=len(entries),
+                gross_dtao_attributed=str(total_dtao),
+                gross_tao_converted=str(total_tao_converted),
+                total_tao_owed=str(total_tao_owed),
+            ),
+            by_payment_status=by_status,
+            by_completeness=by_completeness,
+            by_participant={
                 k: {"dtao": str(v["dtao"]), "tao_owed": str(v["tao_owed"])}
                 for k, v in by_participant.items()
             },
-        }
+        )
 
     # ------------------------------------------------------------------
     # Route-facing methods
     # ------------------------------------------------------------------
 
-    def list_exports(self) -> dict:
+    def list_exports(self) -> ExportListDict:
         """Return previous export runs."""
-        stmt = (
+        stmt: Select[tuple[ProcessingRuns]] = (
             select(ProcessingRuns)
             .where(ProcessingRuns.run_type == RunType.EXPORT.value)
             .order_by(ProcessingRuns.started_at.desc())
         )
-        runs = self.session.scalars(stmt).all()
-        return {
-            "exports": [
-                {
-                    "id": r.run_id,
-                    "filename": (
-                        f"rakeback_{r.period_start}_{r.period_end}.csv"
-                        if r.period_start
-                        else ""
+        runs: Sequence[ProcessingRuns] = self.session.scalars(stmt).all()
+        return ExportListDict(
+            exports=[
+                ExportRunDict(
+                    id=r.run_id,
+                    filename=(
+                        f"rakeback_{r.period_start}_{r.period_end}.csv" if r.period_start else ""
                     ),
-                    "format": "csv",
-                    "period_start": r.period_start or "",
-                    "period_end": r.period_end or "",
-                    "record_count": r.records_created or 0,
-                    "created_at": r.started_at,
-                }
+                    format="csv",
+                    period_start=r.period_start or "",
+                    period_end=r.period_end or "",
+                    record_count=r.records_created or 0,
+                    created_at=r.started_at,
+                )
                 for r in runs
             ],
-        }
+        )
 
     def generate_export(
         self,
         fmt: str = "csv",
-        period_start: Optional[str] = None,
-        period_end: Optional[str] = None,
-        partner_id: Optional[str] = None,
-    ) -> dict:
+        period_start: str | None = None,
+        period_end: str | None = None,
+        partner_id: str | None = None,
+    ) -> ExportDataDict:
         """Generate an export and return the data for the API response."""
-        p_start = date.fromisoformat(period_start) if period_start else None
-        p_end = date.fromisoformat(period_end) if period_end else None
+        p_start: date | None = date.fromisoformat(period_start) if period_start else None
+        p_end: date | None = date.fromisoformat(period_end) if period_end else None
 
-        entries = self._get_entries(
+        entries: list[RakebackLedgerEntries] = self._get_entries(
             period_start=p_start,
             period_end=p_end,
             participant_id=partner_id,
         )
 
-        rows = [
+        rows: list[dict[str, object]] = [
             {
                 "id": e.id,
                 "participant_id": e.participant_id,
@@ -409,11 +421,11 @@ class ExportService:
         ]
 
         if fmt == "csv":
-            buf = io.StringIO()
+            buf: io.StringIO = io.StringIO()
             if rows:
-                writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+                writer: csv.DictWriter[str] = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
                 writer.writeheader()
                 writer.writerows(rows)
-            return {"format": "csv", "content": buf.getvalue(), "record_count": len(rows)}
+            return ExportDataDict(format="csv", content=buf.getvalue(), record_count=len(rows))
 
-        return {"format": "json", "data": rows, "record_count": len(rows)}
+        return ExportDataDict(format="json", data=rows, record_count=len(rows))

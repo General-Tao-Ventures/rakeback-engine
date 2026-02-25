@@ -1,17 +1,24 @@
 """Ingestion service for fetching and storing chain data."""
 
 import csv
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
 
 import structlog
-from sqlalchemy import select, and_, func, delete
+from sqlalchemy import ColumnElement, Select, and_, delete, func, select
 from sqlalchemy.orm import Session, joinedload
 
-from db.enums import CompletenessFlag, DataSource, DelegationType, GapType, ResolutionStatus, RunStatus, RunType
+from db.enums import (
+    CompletenessFlag,
+    DataSource,
+    DelegationType,
+    GapType,
+    ResolutionStatus,
+    RunStatus,
+    RunType,
+)
 from db.models import (
     BlockSnapshots,
     BlockYields,
@@ -19,13 +26,13 @@ from db.models import (
     DataGaps,
     DelegationEntries,
     ProcessingRuns,
-    TaoAllocations,
     YieldSources,
 )
 from rakeback.services._helpers import dump_json, new_id, now_iso
-from rakeback.services.chain_client import ChainClient, ChainClientError, BlockNotFoundError
+from rakeback.services._types import AllocationDict, ConversionDetailDict, ConversionDict
+from rakeback.services.chain_client import BlockNotFoundError, ChainClient, ChainClientError
 
-logger = structlog.get_logger(__name__)
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 class IngestionError(Exception):
@@ -50,9 +57,9 @@ class IngestionResult:
 class IngestionService:
     """Ingests chain data (snapshots, yields, conversions) into the database."""
 
-    def __init__(self, session: Session, chain_client: Optional[ChainClient] = None):
-        self.session = session
-        self.chain_client = chain_client or ChainClient()
+    def __init__(self, session: Session, chain_client: ChainClient | None = None) -> None:
+        self.session: Session = session
+        self.chain_client: ChainClient = chain_client or ChainClient()
 
     # ------------------------------------------------------------------
     # Query helpers
@@ -61,11 +68,11 @@ class IngestionService:
     def _create_run(
         self,
         run_type: RunType,
-        validator_hotkey: Optional[str] = None,
-        block_range: Optional[tuple[int, int]] = None,
-        config_snapshot: Optional[dict] = None,
+        validator_hotkey: str | None = None,
+        block_range: tuple[int, int] | None = None,
+        config_snapshot: dict[str, str] | None = None,
     ) -> ProcessingRuns:
-        run = ProcessingRuns(
+        run: ProcessingRuns = ProcessingRuns(
             run_id=new_id(),
             run_type=run_type.value,
             started_at=now_iso(),
@@ -107,12 +114,15 @@ class IngestionService:
         vhk: str,
         block_hash: str,
         timestamp: str,
-        delegations: list[dict],
+        delegations: list[dict[str, object]],
         data_source: DataSource,
         completeness_flag: CompletenessFlag,
     ) -> BlockSnapshots:
-        total_stake = sum(Decimal(str(d.get("balance_dtao", 0))) for d in delegations)
-        snap = BlockSnapshots(
+        total_stake: Decimal = sum(
+            (Decimal(str(d.get("balance_dtao", 0))) for d in delegations),
+            Decimal(0),
+        )
+        snap: BlockSnapshots = BlockSnapshots(
             block_number=block_number,
             validator_hotkey=vhk,
             block_hash=block_hash,
@@ -123,17 +133,17 @@ class IngestionService:
             total_stake=float(total_stake),
         )
         for d in delegations:
-            balance = Decimal(str(d.get("balance_dtao", 0)))
-            proportion = balance / total_stake if total_stake > 0 else Decimal(0)
-            entry = DelegationEntries(
+            balance: Decimal = Decimal(str(d.get("balance_dtao", 0)))
+            proportion: Decimal = balance / total_stake if total_stake > 0 else Decimal(0)
+            entry: DelegationEntries = DelegationEntries(
                 id=new_id(),
                 block_number=block_number,
                 validator_hotkey=vhk,
                 delegator_address=d["delegator_address"],
-                delegation_type=DelegationType(d["delegation_type"].upper()).value,
+                delegation_type=DelegationType(str(d["delegation_type"]).upper()).value,
                 subnet_id=d.get("subnet_id"),
                 balance_dtao=float(balance),
-                balance_tao=float(d["balance_tao"]) if d.get("balance_tao") else None,
+                balance_tao=float(str(d["balance_tao"])) if d.get("balance_tao") else None,
                 proportion=float(proportion),
             )
             snap.delegations.append(entry)
@@ -146,11 +156,11 @@ class IngestionService:
         block_number: int,
         vhk: str,
         total_dtao_earned: Decimal,
-        yield_sources: Optional[list[dict]],
+        yield_sources: list[dict[str, object]] | None,
         data_source: DataSource,
         completeness_flag: CompletenessFlag,
     ) -> BlockYields:
-        by = BlockYields(
+        by: BlockYields = BlockYields(
             block_number=block_number,
             validator_hotkey=vhk,
             total_dtao_earned=float(total_dtao_earned),
@@ -160,7 +170,7 @@ class IngestionService:
         )
         if yield_sources:
             for src in yield_sources:
-                ys = YieldSources(
+                ys: YieldSources = YieldSources(
                     id=new_id(),
                     block_number=block_number,
                     validator_hotkey=vhk,
@@ -173,39 +183,31 @@ class IngestionService:
         return by
 
     def _delete_snapshot_range(self, start: int, end: int, vhk: str) -> int:
-        stmt = (
-            delete(BlockSnapshots)
-            .where(
-                and_(
-                    BlockSnapshots.block_number >= start,
-                    BlockSnapshots.block_number <= end,
-                    BlockSnapshots.validator_hotkey == vhk,
-                )
+        stmt = delete(BlockSnapshots).where(
+            and_(
+                BlockSnapshots.block_number >= start,
+                BlockSnapshots.block_number <= end,
+                BlockSnapshots.validator_hotkey == vhk,
             )
         )
         result = self.session.execute(stmt)
         self.session.flush()
-        return result.rowcount
+        return int(result.rowcount)  # type: ignore[attr-defined]
 
     def _delete_yield_range(self, start: int, end: int, vhk: str) -> int:
-        stmt = (
-            delete(BlockYields)
-            .where(
-                and_(
-                    BlockYields.block_number >= start,
-                    BlockYields.block_number <= end,
-                    BlockYields.validator_hotkey == vhk,
-                )
+        stmt = delete(BlockYields).where(
+            and_(
+                BlockYields.block_number >= start,
+                BlockYields.block_number <= end,
+                BlockYields.validator_hotkey == vhk,
             )
         )
         result = self.session.execute(stmt)
         self.session.flush()
-        return result.rowcount
+        return int(result.rowcount)  # type: ignore[attr-defined]
 
-    def _record_gap(
-        self, start: int, end: int, vhk: str, reason: str, run_id: str
-    ) -> None:
-        existing = self.session.scalars(
+    def _record_gap(self, start: int, end: int, vhk: str, reason: str, run_id: str) -> None:
+        existing: Sequence[DataGaps] = self.session.scalars(
             select(DataGaps).where(
                 and_(
                     DataGaps.block_start <= end,
@@ -217,7 +219,7 @@ class IngestionService:
         for g in existing:
             if g.validator_hotkey == vhk and g.block_start <= start and g.block_end >= end:
                 return
-        gap = DataGaps(
+        gap: DataGaps = DataGaps(
             id=new_id(),
             gap_type=GapType.SNAPSHOT.value,
             block_start=start,
@@ -243,14 +245,18 @@ class IngestionService:
         skip_existing: bool = True,
         fail_on_error: bool = False,
     ) -> IngestionResult:
-        run = self._create_run(RunType.INGESTION, validator_hotkey, (start_block, end_block))
+        run: ProcessingRuns = self._create_run(
+            RunType.INGESTION,
+            validator_hotkey,
+            (start_block, end_block),
+        )
 
         if not self.chain_client.is_connected():
             self.chain_client.connect()
 
-        blocks_processed = 0
-        blocks_created = 0
-        blocks_skipped = 0
+        blocks_processed: int = 0
+        blocks_created: int = 0
+        blocks_skipped: int = 0
         gaps: list[tuple[int, int]] = []
         errors: list[str] = []
         completeness: dict[str, int] = {
@@ -258,7 +264,7 @@ class IngestionService:
             CompletenessFlag.PARTIAL.value: 0,
             CompletenessFlag.MISSING.value: 0,
         }
-        current_gap_start: Optional[int] = None
+        current_gap_start: int | None = None
 
         for block_num in range(start_block, end_block + 1):
             try:
@@ -266,7 +272,10 @@ class IngestionService:
                     blocks_skipped += 1
                     continue
 
-                result = self._ingest_single_block(block_num, validator_hotkey)
+                result: CompletenessFlag | None = self._ingest_single_block(
+                    block_num,
+                    validator_hotkey,
+                )
                 blocks_processed += 1
 
                 if result:
@@ -275,8 +284,11 @@ class IngestionService:
                     if current_gap_start is not None:
                         gaps.append((current_gap_start, block_num - 1))
                         self._record_gap(
-                            current_gap_start, block_num - 1, validator_hotkey,
-                            "Block data unavailable", run.run_id,
+                            current_gap_start,
+                            block_num - 1,
+                            validator_hotkey,
+                            "Block data unavailable",
+                            run.run_id,
                         )
                         current_gap_start = None
                 else:
@@ -303,8 +315,11 @@ class IngestionService:
         if current_gap_start is not None:
             gaps.append((current_gap_start, end_block))
             self._record_gap(
-                current_gap_start, end_block, validator_hotkey,
-                "Block data unavailable", run.run_id,
+                current_gap_start,
+                end_block,
+                validator_hotkey,
+                "Block data unavailable",
+                run.run_id,
             )
 
         run.records_processed = blocks_processed
@@ -329,14 +344,12 @@ class IngestionService:
             errors=errors,
         )
 
-    def _ingest_single_block(
-        self, block_number: int, vhk: str
-    ) -> Optional[CompletenessFlag]:
+    def _ingest_single_block(self, block_number: int, vhk: str) -> CompletenessFlag | None:
         state = self.chain_client.get_validator_state(block_number, vhk)
         if not state or not state.delegations:
             return None
 
-        delegations = [
+        delegations: list[dict[str, object]] = [
             {
                 "delegator_address": d.delegator_address,
                 "delegation_type": d.delegation_type,
@@ -359,7 +372,7 @@ class IngestionService:
 
         yield_data = self.chain_client.get_block_yield(block_number, vhk)
         if yield_data:
-            sources = [
+            sources: list[dict[str, object]] = [
                 {"subnet_id": sid, "dtao_amount": amt}
                 for sid, amt in yield_data.yield_by_subnet.items()
             ]
@@ -382,15 +395,19 @@ class IngestionService:
         self,
         start_block: int,
         end_block: int,
-        validator_hotkey: Optional[str] = None,
+        validator_hotkey: str | None = None,
     ) -> IngestionResult:
-        run = self._create_run(RunType.INGESTION, validator_hotkey, (start_block, end_block))
+        run: ProcessingRuns = self._create_run(
+            RunType.INGESTION,
+            validator_hotkey,
+            (start_block, end_block),
+        )
 
         if not self.chain_client.is_connected():
             self.chain_client.connect()
 
-        events_created = 0
-        events_skipped = 0
+        events_created: int = 0
+        events_skipped: int = 0
         errors: list[str] = []
 
         try:
@@ -401,7 +418,7 @@ class IngestionService:
                 if self._conversion_exists_for_tx(conv.transaction_hash):
                     events_skipped += 1
                     continue
-                event = ConversionEvents(
+                event: ConversionEvents = ConversionEvents(
                     id=new_id(),
                     block_number=conv.block_number,
                     transaction_hash=conv.transaction_hash,
@@ -445,46 +462,56 @@ class IngestionService:
     # ------------------------------------------------------------------
 
     def import_snapshot_csv(self, csv_path: Path, validator_hotkey: str) -> IngestionResult:
-        run = self._create_run(
-            RunType.INGESTION, validator_hotkey,
+        run: ProcessingRuns = self._create_run(
+            RunType.INGESTION,
+            validator_hotkey,
             config_snapshot={"csv_path": str(csv_path), "type": "snapshot_override"},
         )
-        blocks_created = 0
+        blocks_created: int = 0
         errors: list[str] = []
-        blocks_data: dict = {}
+        blocks_data: dict[int, dict[str, object]] = {}
 
         try:
-            with open(csv_path, "r", newline="") as f:
-                reader = csv.DictReader(f)
+            with open(csv_path, newline="") as f:
+                reader: csv.DictReader[str] = csv.DictReader(f)
                 for row_num, row in enumerate(reader, start=2):
                     try:
-                        bn = int(row["block_number"])
+                        bn: int = int(row["block_number"])
                         if bn not in blocks_data:
                             blocks_data[bn] = {
                                 "block_hash": row["block_hash"],
                                 "timestamp": row["timestamp"],
                                 "delegations": [],
                             }
-                        blocks_data[bn]["delegations"].append(
-                            {
-                                "delegator_address": row["delegator_address"],
-                                "delegation_type": row["delegation_type"],
-                                "subnet_id": int(row["subnet_id"]) if row.get("subnet_id") else None,
-                                "balance_dtao": Decimal(row["balance_dtao"]),
-                                "balance_tao": Decimal(row["balance_tao"]) if row.get("balance_tao") else None,
-                            }
-                        )
+                        deleg_list: object = blocks_data[bn]["delegations"]
+                        if isinstance(deleg_list, list):
+                            deleg_list.append(
+                                {
+                                    "delegator_address": row["delegator_address"],
+                                    "delegation_type": row["delegation_type"],
+                                    "subnet_id": (
+                                        int(row["subnet_id"]) if row.get("subnet_id") else None
+                                    ),
+                                    "balance_dtao": Decimal(row["balance_dtao"]),
+                                    "balance_tao": (
+                                        Decimal(row["balance_tao"])
+                                        if row.get("balance_tao")
+                                        else None
+                                    ),
+                                }
+                            )
                     except (KeyError, ValueError) as e:
                         errors.append(f"Row {row_num}: {e}")
 
             for bn, data in sorted(blocks_data.items()):
                 self._delete_snapshot_range(bn, bn, validator_hotkey)
+                delegs: object = data["delegations"]
                 self._create_snapshot(
                     block_number=bn,
                     vhk=validator_hotkey,
-                    block_hash=data["block_hash"],
-                    timestamp=data["timestamp"],
-                    delegations=data["delegations"],
+                    block_hash=str(data["block_hash"]),
+                    timestamp=str(data["timestamp"]),
+                    delegations=delegs if isinstance(delegs, list) else [],
                     data_source=DataSource.CSV_OVERRIDE,
                     completeness_flag=CompletenessFlag.COMPLETE,
                 )
@@ -514,39 +541,46 @@ class IngestionService:
         )
 
     def import_yield_csv(self, csv_path: Path, validator_hotkey: str) -> IngestionResult:
-        run = self._create_run(
-            RunType.INGESTION, validator_hotkey,
+        run: ProcessingRuns = self._create_run(
+            RunType.INGESTION,
+            validator_hotkey,
             config_snapshot={"csv_path": str(csv_path), "type": "yield_override"},
         )
-        yields_created = 0
+        yields_created: int = 0
         errors: list[str] = []
-        blocks_data: dict = {}
+        blocks_data: dict[int, dict[str, object]] = {}
 
         try:
-            with open(csv_path, "r", newline="") as f:
-                reader = csv.DictReader(f)
+            with open(csv_path, newline="") as f:
+                reader: csv.DictReader[str] = csv.DictReader(f)
                 for row_num, row in enumerate(reader, start=2):
                     try:
-                        bn = int(row["block_number"])
+                        bn: int = int(row["block_number"])
                         if bn not in blocks_data:
                             blocks_data[bn] = {
                                 "total_dtao_earned": Decimal(row["total_dtao_earned"]),
                                 "sources": [],
                             }
                         if row.get("subnet_id") and row.get("subnet_dtao"):
-                            blocks_data[bn]["sources"].append(
-                                {"subnet_id": int(row["subnet_id"]), "dtao_amount": Decimal(row["subnet_dtao"])}
-                            )
+                            src_list: object = blocks_data[bn]["sources"]
+                            if isinstance(src_list, list):
+                                src_list.append(
+                                    {
+                                        "subnet_id": int(row["subnet_id"]),
+                                        "dtao_amount": Decimal(row["subnet_dtao"]),
+                                    }
+                                )
                     except (KeyError, ValueError) as e:
                         errors.append(f"Row {row_num}: {e}")
 
             for bn, data in sorted(blocks_data.items()):
                 self._delete_yield_range(bn, bn, validator_hotkey)
+                sources: object = data["sources"]
                 self._create_yield(
                     block_number=bn,
                     vhk=validator_hotkey,
-                    total_dtao_earned=data["total_dtao_earned"],
-                    yield_sources=data["sources"] or None,
+                    total_dtao_earned=Decimal(str(data["total_dtao_earned"])),
+                    yield_sources=sources if isinstance(sources, list) else None,
                     data_source=DataSource.CSV_OVERRIDE,
                     completeness_flag=CompletenessFlag.COMPLETE,
                 )
@@ -578,64 +612,66 @@ class IngestionService:
     # ------------------------------------------------------------------
 
     def list_conversions(
-        self, start_block: Optional[int] = None, end_block: Optional[int] = None
-    ) -> list[dict]:
-        conditions = []
+        self, start_block: int | None = None, end_block: int | None = None
+    ) -> list[ConversionDict]:
+        conditions: list[ColumnElement[bool]] = []
         if start_block is not None:
             conditions.append(ConversionEvents.block_number >= start_block)
         if end_block is not None:
             conditions.append(ConversionEvents.block_number <= end_block)
-        stmt = select(ConversionEvents).order_by(ConversionEvents.block_number)
+        stmt: Select[tuple[ConversionEvents]] = select(ConversionEvents).order_by(
+            ConversionEvents.block_number,
+        )
         if conditions:
             stmt = stmt.where(and_(*conditions))
-        rows = self.session.scalars(stmt).all()
+        rows: Sequence[ConversionEvents] = self.session.scalars(stmt).all()
         return [
-            {
-                "id": r.id,
-                "block_number": r.block_number,
-                "transaction_hash": r.transaction_hash,
-                "validator_hotkey": r.validator_hotkey,
-                "dtao_amount": str(r.dtao_amount),
-                "tao_amount": str(r.tao_amount),
-                "conversion_rate": str(r.conversion_rate),
-                "subnet_id": r.subnet_id,
-                "fully_allocated": bool(r.fully_allocated),
-                "tao_price": None,
-            }
+            ConversionDict(
+                id=r.id,
+                block_number=r.block_number,
+                transaction_hash=r.transaction_hash,
+                validator_hotkey=r.validator_hotkey,
+                dtao_amount=str(r.dtao_amount),
+                tao_amount=str(r.tao_amount),
+                conversion_rate=str(r.conversion_rate),
+                subnet_id=r.subnet_id,
+                fully_allocated=bool(r.fully_allocated),
+                tao_price=None,
+            )
             for r in rows
         ]
 
-    def get_conversion_detail(self, conversion_id: str) -> Optional[dict]:
-        stmt = (
+    def get_conversion_detail(self, conversion_id: str) -> ConversionDetailDict | None:
+        stmt: Select[tuple[ConversionEvents]] = (
             select(ConversionEvents)
             .where(ConversionEvents.id == conversion_id)
             .options(joinedload(ConversionEvents.allocations))
         )
-        event = self.session.scalar(stmt)
+        event: ConversionEvents | None = self.session.scalar(stmt)
         if not event:
             return None
-        return {
-            "conversion": {
-                "id": event.id,
-                "block_number": event.block_number,
-                "transaction_hash": event.transaction_hash,
-                "validator_hotkey": event.validator_hotkey,
-                "dtao_amount": str(event.dtao_amount),
-                "tao_amount": str(event.tao_amount),
-                "conversion_rate": str(event.conversion_rate),
-                "subnet_id": event.subnet_id,
-                "fully_allocated": bool(event.fully_allocated),
-                "tao_price": None,
-            },
-            "allocations": [
-                {
-                    "id": a.id,
-                    "conversion_event_id": a.conversion_event_id,
-                    "block_attribution_id": a.block_attribution_id,
-                    "tao_allocated": str(a.tao_allocated),
-                    "allocation_method": a.allocation_method,
-                    "completeness_flag": a.completeness_flag,
-                }
+        return ConversionDetailDict(
+            conversion=ConversionDict(
+                id=event.id,
+                block_number=event.block_number,
+                transaction_hash=event.transaction_hash,
+                validator_hotkey=event.validator_hotkey,
+                dtao_amount=str(event.dtao_amount),
+                tao_amount=str(event.tao_amount),
+                conversion_rate=str(event.conversion_rate),
+                subnet_id=event.subnet_id,
+                fully_allocated=bool(event.fully_allocated),
+                tao_price=None,
+            ),
+            allocations=[
+                AllocationDict(
+                    id=a.id,
+                    conversion_event_id=a.conversion_event_id,
+                    block_attribution_id=a.block_attribution_id,
+                    tao_allocated=str(a.tao_allocated),
+                    allocation_method=a.allocation_method,
+                    completeness_flag=a.completeness_flag,
+                )
                 for a in (event.allocations or [])
             ],
-        }
+        )

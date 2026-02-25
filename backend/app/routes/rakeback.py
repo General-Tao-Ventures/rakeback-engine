@@ -8,9 +8,10 @@ from app.schemas.rakeback import (
     LedgerEntryResponse,
     LedgerSummaryResponse,
 )
+from rakeback.services._types import LedgerEntryDict, LedgerSummaryDict
 from rakeback.services.aggregation import AggregationService
 
-router = APIRouter(prefix="/api", tags=["rakeback"])
+router: APIRouter = APIRouter(prefix="/api", tags=["rakeback"])
 
 
 @router.get("/rakeback", response_model=list[LedgerEntryResponse])
@@ -18,8 +19,8 @@ def list_rakeback(
     partner_id: str | None = Query(None),
     period_type: str | None = Query(None),
     db: Session = Depends(get_db),
-) -> list[LedgerEntryResponse]:
-    svc = AggregationService(db)
+) -> list[LedgerEntryDict]:
+    svc: AggregationService = AggregationService(db)
     return svc.list_ledger_entries(partner_id, period_type)
 
 
@@ -27,6 +28,6 @@ def list_rakeback(
 def rakeback_summary(
     partner_id: str | None = Query(None),
     db: Session = Depends(get_db),
-) -> LedgerSummaryResponse:
-    svc = AggregationService(db)
+) -> LedgerSummaryDict:
+    svc: AggregationService = AggregationService(db)
     return svc.get_ledger_summary(partner_id)

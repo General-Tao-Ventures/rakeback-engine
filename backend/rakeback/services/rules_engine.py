@@ -1,17 +1,105 @@
 """Rules engine for matching delegators to rakeback participants."""
 
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import date
-from typing import Optional, Sequence
 
-import structlog
-from sqlalchemy import select, and_
+from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
-from db.enums import DelegationType
+from db.enums import DelegationType, RuleType
 from db.models import RakebackParticipants
-from rakeback.services._helpers import load_json
+from rakeback.services._helpers import JsonDict, load_json
+from rakeback.services._types import ParticipantSnapshot, RulesSnapshot
 
-logger = structlog.get_logger(__name__)
+
+def _str_list(data: dict[str, object], key: str) -> list[str]:
+    raw: object = data.get(key)
+    return [str(v) for v in raw] if isinstance(raw, list) else []
+
+
+def _int_list(data: dict[str, object], key: str) -> list[int]:
+    raw: object = data.get(key)
+    return [int(v) for v in raw] if isinstance(raw, list) else []
+
+
+@dataclass(slots=True)
+class Rule:
+    type: RuleType
+    addresses: list[str] = field(default_factory=list)
+    delegation_types: list[str] = field(default_factory=list)
+    subnet_ids: list[int] = field(default_factory=list)
+    memo_string: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "Rule | None":
+        rule_type: object = data.get("type")
+        if not isinstance(rule_type, str):
+            return None
+        try:
+            parsed_type: RuleType = RuleType(rule_type)
+        except ValueError:
+            return None
+        memo: object = data.get("memo_string")
+        return cls(
+            type=parsed_type,
+            addresses=_str_list(data, "addresses"),
+            delegation_types=_str_list(data, "delegation_types"),
+            subnet_ids=_int_list(data, "subnet_ids"),
+            memo_string=str(memo) if isinstance(memo, str) else None,
+        )
+
+    def matches(
+        self,
+        delegator_address: str,
+        delegation_type_value: str,
+        subnet_id: int | None,
+    ) -> bool:
+        match self.type:
+            case RuleType.EXACT_ADDRESS:
+                return delegator_address in self.addresses
+            case RuleType.DELEGATION_TYPE:
+                if delegation_type_value not in self.delegation_types:
+                    return False
+                return not self.subnet_ids or subnet_id in self.subnet_ids
+            case RuleType.SUBNET:
+                return subnet_id in self.subnet_ids
+            case RuleType.RT21_AUTO_DELEGATION:
+                return False
+            case RuleType.ALL:
+                return True
+
+    def matches_address(self, address: str) -> bool:
+        match self.type:
+            case RuleType.EXACT_ADDRESS:
+                return address in self.addresses
+            case RuleType.ALL:
+                return True
+            case _:
+                return False
+
+    def validate(self, valid_dtypes: set[str]) -> list[str]:
+        match self.type:
+            case RuleType.EXACT_ADDRESS:
+                if not self.addresses:
+                    return [f"{self.type} has no addresses"]
+                return ["Invalid address format" for addr in self.addresses if len(addr) < 10]
+            case RuleType.DELEGATION_TYPE:
+                return [
+                    f"Invalid delegation type '{t}'"
+                    for t in self.delegation_types
+                    if t not in valid_dtypes
+                ]
+            case RuleType.SUBNET:
+                if not self.subnet_ids:
+                    return [f"{self.type} has no subnet_ids"]
+                return []
+            case RuleType.RT21_AUTO_DELEGATION:
+                if self.memo_string is None:
+                    return [f"{self.type} has no memo_string"]
+                return []
+            case RuleType.ALL:
+                return []
 
 
 class RulesEngineError(Exception):
@@ -25,8 +113,8 @@ class InvalidRuleError(RulesEngineError):
 class RulesEngine:
     """Matches delegators to rakeback participants using configurable rules."""
 
-    def __init__(self, session: Session):
-        self.session = session
+    def __init__(self, session: Session) -> None:
+        self.session: Session = session
 
     # ------------------------------------------------------------------
     # Public API
@@ -36,16 +124,15 @@ class RulesEngine:
         self,
         delegator_address: str,
         delegation_type: DelegationType,
-        subnet_id: Optional[int],
-        as_of_date: Optional[date] = None,
-    ) -> Optional[RakebackParticipants]:
+        subnet_id: int | None,
+        as_of_date: date | None = None,
+    ) -> RakebackParticipants | None:
         """Return the first active participant whose rules match this delegator."""
-        check_date = (as_of_date or date.today()).isoformat()
-        participants = self._get_active_participants(check_date)
+        check_date: str = (as_of_date or date.today()).isoformat()
+        participants: Sequence[RakebackParticipants] = self._get_active_participants(check_date)
         for p in participants:
-            if self._matches_participant(
-                p, delegator_address, delegation_type.value, subnet_id
-            ):
+            rules: list[Rule] = self._rules_list(p)
+            if any(r.matches(delegator_address, delegation_type.value, subnet_id) for r in rules):
                 return p
         return None
 
@@ -55,67 +142,49 @@ class RulesEngine:
         addresses: Sequence[str],
     ) -> list[str]:
         """Filter *addresses* to those matching a participant's rules."""
-        return [a for a in addresses if self._matches_address_rules(participant, a)]
+        rules: list[Rule] = self._rules_list(participant)
+        return [a for a in addresses if any(r.matches_address(a) for r in rules)]
 
     def validate_rules(self, participant: RakebackParticipants) -> list[str]:
         """Return validation errors for a participant's matching_rules (empty = valid)."""
-        rules = self._rules_list(participant)
-        errors: list[str] = []
+        rules: list[Rule] = self._rules_list(participant)
         if not rules:
-            errors.append("No matching rules defined")
-            return errors
-        valid_dtypes = {dt.value for dt in DelegationType}
+            return ["No matching rules defined"]
+        valid_dtypes: set[str] = {dt.value for dt in DelegationType}
+        errors: list[str] = []
         for i, rule in enumerate(rules):
-            rule_type = rule.get("type")
-            if not rule_type:
-                errors.append(f"Rule {i}: Missing 'type' field")
-                continue
-            if rule_type == "EXACT_ADDRESS":
-                addrs = rule.get("addresses", [])
-                if not addrs:
-                    errors.append(f"Rule {i}: EXACT_ADDRESS has no addresses")
-                for addr in addrs:
-                    if not isinstance(addr, str) or len(addr) < 10:
-                        errors.append(f"Rule {i}: Invalid address format")
-            elif rule_type == "DELEGATION_TYPE":
-                for t in rule.get("delegation_types", []):
-                    if t not in valid_dtypes:
-                        errors.append(f"Rule {i}: Invalid delegation type '{t}'")
-            elif rule_type == "SUBNET":
-                if not rule.get("subnet_ids"):
-                    errors.append(f"Rule {i}: SUBNET has no subnet_ids")
-            elif rule_type == "RT21_AUTO_DELEGATION":
-                if not rule.get("memo_string"):
-                    errors.append(f"Rule {i}: RT21_AUTO_DELEGATION has no memo_string")
-            elif rule_type != "ALL":
-                errors.append(f"Rule {i}: Unknown rule type '{rule_type}'")
+            for err in rule.validate(valid_dtypes):
+                errors.append(f"Rule {i}: {err}")
         return errors
 
-    def get_rules_snapshot(self, as_of: date) -> dict:
+    def get_rules_snapshot(self, as_of: date) -> RulesSnapshot:
         """Snapshot of all active rules as of a date (for audit trail)."""
-        check_date = as_of.isoformat()
-        participants = self._get_active_participants(check_date)
-        return {
-            "as_of": as_of.isoformat(),
-            "participants": [
-                {
-                    "id": p.id,
-                    "name": p.name,
-                    "type": p.type,
-                    "rakeback_percentage": str(p.rakeback_percentage),
-                    "matching_rules": load_json(p.matching_rules) or {},
-                    "aggregation_mode": p.aggregation_mode,
-                }
+        check_date: str = as_of.isoformat()
+        participants: Sequence[RakebackParticipants] = self._get_active_participants(check_date)
+        return RulesSnapshot(
+            as_of=as_of.isoformat(),
+            participants=[
+                ParticipantSnapshot(
+                    id=p.id,
+                    name=p.name,
+                    type=p.type,
+                    rakeback_percentage=str(p.rakeback_percentage),
+                    matching_rules=load_json(p.matching_rules) or {},
+                    aggregation_mode=p.aggregation_mode,
+                )
                 for p in participants
             ],
-        }
+        )
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    def _get_active_participants(self, date_str: str) -> Sequence[RakebackParticipants]:
-        stmt = (
+    def _get_active_participants(
+        self,
+        date_str: str,
+    ) -> Sequence[RakebackParticipants]:
+        stmt: Select[tuple[RakebackParticipants]] = (
             select(RakebackParticipants)
             .where(
                 and_(
@@ -131,61 +200,13 @@ class RulesEngine:
         return self.session.scalars(stmt).all()
 
     @staticmethod
-    def _rules_list(participant: RakebackParticipants) -> list[dict]:
-        raw = participant.matching_rules
-        mr = load_json(raw) if isinstance(raw, str) else raw
-        if isinstance(mr, dict):
-            return mr.get("rules", [])
-        return []
-
-    def _matches_participant(
-        self,
-        participant: RakebackParticipants,
-        delegator_address: str,
-        delegation_type_value: str,
-        subnet_id: Optional[int],
-    ) -> bool:
-        rules = self._rules_list(participant)
-        return any(
-            self._evaluate_rule(r, delegator_address, delegation_type_value, subnet_id)
-            for r in rules
-        )
-
-    def _matches_address_rules(
-        self,
-        participant: RakebackParticipants,
-        address: str,
-    ) -> bool:
-        for rule in self._rules_list(participant):
-            rt = rule.get("type")
-            if rt == "EXACT_ADDRESS" and address in rule.get("addresses", []):
-                return True
-            if rt == "ALL":
-                return True
-        return False
-
-    @staticmethod
-    def _evaluate_rule(
-        rule: dict,
-        delegator_address: str,
-        delegation_type_value: str,
-        subnet_id: Optional[int],
-    ) -> bool:
-        rt = rule.get("type")
-        if rt == "EXACT_ADDRESS":
-            return delegator_address in rule.get("addresses", [])
-        if rt == "DELEGATION_TYPE":
-            if delegation_type_value not in rule.get("delegation_types", []):
-                return False
-            sf = rule.get("subnet_ids")
-            if sf and subnet_id not in sf:
-                return False
-            return True
-        if rt == "SUBNET":
-            return subnet_id in rule.get("subnet_ids", [])
-        if rt == "RT21_AUTO_DELEGATION":
-            return False
-        if rt == "ALL":
-            return True
-        logger.warning("Unknown rule type", rule_type=rt)
-        return False
+    def _rules_list(participant: RakebackParticipants) -> list[Rule]:
+        raw: str | None = participant.matching_rules
+        mr: JsonDict | None = load_json(raw) if isinstance(raw, str) else None
+        if not isinstance(mr, dict):
+            return []
+        raw_rules: object = mr.get("rules")
+        if not isinstance(raw_rules, list):
+            return []
+        parsed: list[Rule | None] = [Rule.from_dict(r) for r in raw_rules if isinstance(r, dict)]
+        return [r for r in parsed if r is not None]

@@ -1,4 +1,4 @@
-.PHONY: setup migrate migrate-status migrate-dry generate-models api dev test lint fmt clean docker-up docker-down docker-build
+.PHONY: setup migrate migrate-status migrate-dry generate-models api dev test lint typecheck fmt clean docker-up docker-down docker-build
 
 DIRS = app/ db/ rakeback/ worker/ scripts/ tests/
 
@@ -31,6 +31,9 @@ test:
 
 lint:
 	cd backend && .venv/bin/ruff check $(DIRS) config.py
+
+typecheck:
+	cd backend && .venv/bin/mypy $(DIRS) config.py --ignore-missing-imports
 
 fmt:
 	cd backend && .venv/bin/ruff check --fix $(DIRS) config.py && .venv/bin/black $(DIRS) config.py

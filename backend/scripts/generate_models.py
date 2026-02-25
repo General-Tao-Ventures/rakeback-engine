@@ -12,27 +12,32 @@ Usage:
 import argparse
 import os
 import sys
-import textwrap
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect
 
-BACKEND_ROOT = Path(__file__).resolve().parent.parent
-DB_DIR = BACKEND_ROOT / "db"
-OUTPUT_FILE = DB_DIR / "models.py"
+BACKEND_ROOT: Path = Path(__file__).resolve().parent.parent
+DB_DIR: Path = BACKEND_ROOT / "db"
+OUTPUT_FILE: Path = DB_DIR / "models.py"
 
 # Relationships that cannot be inferred from FKs alone.
 # Format: (parent_table, child_table, parent_attr, child_attr, order_by)
-RELATIONSHIPS = [
-    ("rakeback_participants", "eligibility_rules", "eligibility_rules", "participant", "created_at"),
+RELATIONSHIPS: list[tuple[str, str, str, str, str | None]] = [
+    (
+        "rakeback_participants",
+        "eligibility_rules",
+        "eligibility_rules",
+        "participant",
+        "created_at",
+    ),
     ("block_snapshots", "delegation_entries", "delegations", "snapshot", "delegator_address"),
     ("block_yields", "yield_sources", "yield_sources", "block_yield", "subnet_id"),
     ("conversion_events", "tao_allocations", "allocations", "conversion_event", None),
 ]
 
 # Map SQL type strings to SQLAlchemy imports
-TYPE_MAP = {
+TYPE_MAP: dict[str, str] = {
     "TEXT": "String",
     "INTEGER": "Integer",
     "BIGINT": "BigInteger",
@@ -43,7 +48,7 @@ TYPE_MAP = {
 }
 
 # Tables to skip generating models for
-SKIP_TABLES = {"_migrations"}
+SKIP_TABLES: set[str] = {"_migrations"}
 
 HEADER = '''\
 """SQLAlchemy ORM models — auto-generated from migrated schema.
@@ -121,7 +126,7 @@ def _get_db_url() -> str:
     for candidate in (BACKEND_ROOT / ".env", BACKEND_ROOT.parent / ".env"):
         if candidate.exists():
             load_dotenv(candidate, override=False)
-    db_path = os.environ.get("DB_SQLITE_PATH", "data/rakeback.db")
+    db_path: str = os.environ.get("DB_SQLITE_PATH", "data/rakeback.db")
     if not os.path.isabs(db_path):
         db_path = str(BACKEND_ROOT / db_path)
     return f"sqlite:///{db_path}"
@@ -129,13 +134,13 @@ def _get_db_url() -> str:
 
 def _table_to_class(table_name: str) -> str:
     """Convert snake_case table name to PascalCase class name."""
-    parts = table_name.split("_")
+    parts: list[str] = table_name.split("_")
     return "".join(p.capitalize() for p in parts)
 
 
-def _sql_type_to_sa(col) -> str:
+def _sql_type_to_sa(col: dict[str, object]) -> str:
     """Convert an inspected column type to a SQLAlchemy type string."""
-    type_str = str(col["type"]).upper()
+    type_str: str = str(col["type"]).upper()
 
     if "NUMERIC" in type_str:
         # Preserve precision: NUMERIC(38, 18) -> Numeric(38, 18)
@@ -146,7 +151,7 @@ def _sql_type_to_sa(col) -> str:
         return "BigInteger"
     if "INTEGER" in type_str or "INT" in type_str:
         return "Integer"
-    if "DATE" == type_str:
+    if type_str == "DATE":
         return "Date"
     if "BOOLEAN" in type_str:
         return "Boolean"
@@ -155,53 +160,49 @@ def _sql_type_to_sa(col) -> str:
     return "String"
 
 
-def generate(engine) -> str:
+def generate(engine: object) -> str:
     """Generate the models module source from the DB schema."""
-    insp = inspect(engine)
-    tables = [t for t in insp.get_table_names() if t not in SKIP_TABLES]
+    insp: object = inspect(engine)  # type: ignore[arg-type]
+    tables: list[str] = [t for t in insp.get_table_names() if t not in SKIP_TABLES]  # type: ignore[union-attr]
 
-    lines = [HEADER]
+    lines: list[str] = [HEADER]
 
     for table in tables:
-        columns = insp.get_columns(table)
-        pk_cols = insp.get_pk_constraint(table)
-        fks = insp.get_foreign_keys(table)
-        uniques = insp.get_unique_constraints(table)
-        indexes = insp.get_indexes(table)
-
-        class_name = _table_to_class(table)
+        columns: list[dict[str, object]] = insp.get_columns(table)  # type: ignore[union-attr]
+        pk_cols: dict[str, object] = insp.get_pk_constraint(table)  # type: ignore[union-attr]
+        fks: list[dict[str, object]] = insp.get_foreign_keys(table)  # type: ignore[union-attr]
+        uniques: list[dict[str, object]] = insp.get_unique_constraints(table)  # type: ignore[union-attr]
+        class_name: str = _table_to_class(table)
         lines.append(f"class {class_name}(Base):")
         lines.append(f'    __tablename__ = "{table}"')
         lines.append("")
 
-        pk_names = set(pk_cols["constrained_columns"]) if pk_cols else set()
+        pk_names: set[str] = set(pk_cols["constrained_columns"]) if pk_cols else set()  # type: ignore[arg-type]
 
         # Build FK lookup: column -> (ref_table, ref_col)
-        simple_fks = {}
-        composite_fks = []
+        simple_fks: dict[str, tuple[str, str, str | None]] = {}
+        composite_fks: list[dict[str, object]] = []
         for fk in fks:
-            if len(fk["constrained_columns"]) == 1:
-                simple_fks[fk["constrained_columns"][0]] = (
-                    fk["referred_table"],
-                    fk["referred_columns"][0],
-                    fk.get("options", {}).get("ondelete"),
+            if len(fk["constrained_columns"]) == 1:  # type: ignore[arg-type]
+                simple_fks[fk["constrained_columns"][0]] = (  # type: ignore[index]
+                    fk["referred_table"],  # type: ignore[assignment]
+                    fk["referred_columns"][0],  # type: ignore[index]
+                    fk.get("options", {}).get("ondelete"),  # type: ignore[union-attr]
                 )
             else:
                 composite_fks.append(fk)
 
         # Columns
         for col in columns:
-            name = col["name"]
-            sa_type = _sql_type_to_sa(col)
-            parts = [f"    {name}: Mapped"]
+            name: str = col["name"]  # type: ignore[assignment]
+            sa_type: str = _sql_type_to_sa(col)
 
-            is_pk = name in pk_names
-            nullable = col.get("nullable", True) and not is_pk
-            kwargs = []
+            is_pk: bool = name in pk_names
+            nullable: bool = bool(col.get("nullable", True)) and not is_pk
 
             # Type annotation
             if sa_type in ("String", "Text"):
-                py_type = "str | None" if nullable else "str"
+                py_type: str = "str | None" if nullable else "str"
             elif sa_type in ("Integer", "BigInteger"):
                 py_type = "int | None" if nullable else "int"
             elif "Numeric" in sa_type:
@@ -214,39 +215,42 @@ def generate(engine) -> str:
                 py_type = "str | None" if nullable else "str"
 
             # mapped_column args
-            mc_args = []
+            mc_args: list[str] = []
             if name in simple_fks:
+                ref_table: str
+                ref_col: str
+                ondelete: str | None
                 ref_table, ref_col, ondelete = simple_fks[name]
-                fk_str = f'ForeignKey("{ref_table}.{ref_col}"'
+                fk_str: str = f'ForeignKey("{ref_table}.{ref_col}"'
                 if ondelete:
                     fk_str += f', ondelete="{ondelete}"'
                 fk_str += ")"
                 mc_args.append(fk_str)
 
-            mc_kwargs = []
+            mc_kwargs: list[str] = []
             if is_pk:
                 mc_kwargs.append("primary_key=True")
             if not nullable and not is_pk:
                 mc_kwargs.append("nullable=False")
             if col.get("default") is not None:
-                default = col["default"]
+                default: object = col["default"]
                 if isinstance(default, str):
                     # Strip wrapping quotes from SQLite defaults like "'CHAIN'"
-                    clean = default.strip("'\"")
+                    clean: str = default.strip("'\"")
                     # Escape inner quotes for valid Python
                     clean = clean.replace('"', '\\"')
                     mc_kwargs.append(f'default="{clean}"')
                 else:
                     mc_kwargs.append(f"default={default}")
 
-            all_args = mc_args + mc_kwargs
-            single = f"    {name}: Mapped[{py_type}] = mapped_column({', '.join(all_args)})"
+            all_args: list[str] = mc_args + mc_kwargs
+            single: str = f"    {name}: Mapped[{py_type}] = mapped_column({', '.join(all_args)})"
             if len(single) <= 99:
                 lines.append(single)
             else:
                 lines.append(f"    {name}: Mapped[{py_type}] = mapped_column(")
                 for i, arg in enumerate(all_args):
-                    comma = "," if i < len(all_args) - 1 else ","
+                    comma: str = "," if i < len(all_args) - 1 else ","
                     lines.append(f"        {arg}{comma}")
                 lines.append("    )")
 
@@ -254,37 +258,37 @@ def generate(engine) -> str:
         if composite_fks:
             lines.append("")
             for cfk in composite_fks:
-                cols = cfk["constrained_columns"]
-                ref_table = cfk["referred_table"]
-                ref_cols = cfk["referred_columns"]
-                ondelete = cfk.get("options", {}).get("ondelete", "")
-                cols_str = ", ".join(f'"{c}"' for c in cols)
-                refs_str = ", ".join(f'"{ref_table}.{rc}"' for rc in ref_cols)
-                fkc = f"    __table_args__ = (ForeignKeyConstraint([{cols_str}], [{refs_str}]"
-                if ondelete:
-                    fkc += f', ondelete="{ondelete}"'
+                cols: object = cfk["constrained_columns"]
+                cfk_ref_table: object = cfk["referred_table"]
+                ref_cols: object = cfk["referred_columns"]
+                cfk_ondelete: str = cfk.get("options", {}).get("ondelete", "")  # type: ignore[union-attr]
+                cols_str: str = ", ".join(f'"{c}"' for c in cols)  # type: ignore[union-attr]
+                refs_str: str = ", ".join(f'"{cfk_ref_table}.{rc}"' for rc in ref_cols)  # type: ignore[union-attr]
+                fkc: str = f"    __table_args__ = (ForeignKeyConstraint([{cols_str}], [{refs_str}]"
+                if cfk_ondelete:
+                    fkc += f', ondelete="{cfk_ondelete}"'
                 fkc += "),"
 
         # Table args: unique constraints + composite FKs
-        table_args_parts = []
+        table_args_parts: list[str] = []
         for cfk in composite_fks:
             cols = cfk["constrained_columns"]
-            ref_table = cfk["referred_table"]
+            cfk_ref_table = cfk["referred_table"]
             ref_cols = cfk["referred_columns"]
-            ondelete = cfk.get("options", {}).get("ondelete", "")
-            cols_str = ", ".join(f'"{c}"' for c in cols)
-            refs_str = ", ".join(f'"{ref_table}.{rc}"' for rc in ref_cols)
+            cfk_ondelete = cfk.get("options", {}).get("ondelete", "")  # type: ignore[union-attr]
+            cols_str = ", ".join(f'"{c}"' for c in cols)  # type: ignore[union-attr]
+            refs_str = ", ".join(f'"{cfk_ref_table}.{rc}"' for rc in ref_cols)  # type: ignore[union-attr]
             fkc = f"ForeignKeyConstraint([{cols_str}], [{refs_str}]"
-            if ondelete:
-                fkc += f', ondelete="{ondelete}"'
+            if cfk_ondelete:
+                fkc += f', ondelete="{cfk_ondelete}"'
             fkc += ")"
             table_args_parts.append(fkc)
 
         for uq in uniques:
-            cols_str = ", ".join(f'"{c}"' for c in uq["column_names"])
-            uq_name = uq.get("name")
+            cols_str = ", ".join(f'"{c}"' for c in uq["column_names"])  # type: ignore[union-attr]
+            uq_name: object = uq.get("name")
             if uq_name and uq_name != "None" and str(uq_name) != "None":
-                uqc = f'UniqueConstraint({cols_str}, name="{uq_name}")'
+                uqc: str = f'UniqueConstraint({cols_str}, name="{uq_name}")'
             else:
                 uqc = f"UniqueConstraint({cols_str})"
             table_args_parts.append(uqc)
@@ -297,7 +301,7 @@ def generate(engine) -> str:
                 if len(f"        {part},") > 99:
                     # Split into multi-line
                     lines.append(f"        {part.split('(')[0]}(")
-                    inner = part.split("(", 1)[1].rstrip(")")
+                    inner: str = part.split("(", 1)[1].rstrip(")")
                     for arg in inner.split(", "):
                         lines.append(f"            {arg},")
                     lines.append("        ),")
@@ -308,19 +312,19 @@ def generate(engine) -> str:
         # Relationships
         for parent_table, child_table, parent_attr, child_attr, order_by in RELATIONSHIPS:
             if table == parent_table:
-                child_class = _table_to_class(child_table)
-                rel_lines = [
+                child_class: str = _table_to_class(child_table)
+                rel_lines: list[str] = [
                     f"    {parent_attr} = relationship(",
                     f'        "{child_class}",',
                     f'        back_populates="{child_attr}",',
                     '        cascade="all, delete-orphan",',
                 ]
                 if order_by:
-                    rel_lines.append(f'        order_by="{order_by}",')
+                    rel_lines.append(f'        order_by="{child_class}.{order_by}",')
                 rel_lines.append("    )")
                 lines.extend(rel_lines)
             elif table == child_table:
-                parent_class = _table_to_class(parent_table)
+                parent_class: str = _table_to_class(parent_table)
                 lines.append(
                     f"    {child_attr} = relationship("
                     f'"{parent_class}", back_populates="{parent_attr}")'
@@ -333,21 +337,30 @@ def generate(engine) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate db/models.py from migrated schema")
-    parser.add_argument("--stdout", action="store_true", help="Print to stdout instead of writing file")
-    args = parser.parse_args()
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Generate db/models.py from migrated schema",
+    )
+    parser.add_argument(
+        "--stdout",
+        action="store_true",
+        help="Print to stdout instead of writing file",
+    )
+    args: argparse.Namespace = parser.parse_args()
 
-    url = _get_db_url()
-    engine = create_engine(url)
+    url: str = _get_db_url()
+    engine: object = create_engine(url)
 
     # Verify tables exist
-    insp = inspect(engine)
-    tables = insp.get_table_names()
+    insp: object = inspect(engine)  # type: ignore[arg-type]
+    tables: list[str] = insp.get_table_names()  # type: ignore[union-attr]
     if not tables or tables == ["_migrations"]:
-        print("ERROR: No tables found. Run migrations first: python migrations/migrate.py", file=sys.stderr)
+        print(
+            "ERROR: No tables found. Run migrations first: python migrations/migrate.py",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    source = generate(engine)
+    source: str = generate(engine)
 
     if args.stdout:
         print(source)

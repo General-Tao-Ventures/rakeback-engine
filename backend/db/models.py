@@ -75,7 +75,7 @@ class BlockSnapshots(Base):
         "DelegationEntries",
         back_populates="snapshot",
         cascade="all, delete-orphan",
-        order_by="delegator_address",
+        order_by="DelegationEntries.delegator_address",
     )
 
 
@@ -92,7 +92,7 @@ class BlockYields(Base):
         "YieldSources",
         back_populates="block_yield",
         cascade="all, delete-orphan",
-        order_by="subnet_id",
+        order_by="YieldSources.subnet_id",
     )
 
 
@@ -248,7 +248,7 @@ class RakebackParticipants(Base):
         "EligibilityRules",
         back_populates="participant",
         cascade="all, delete-orphan",
-        order_by="created_at",
+        order_by="EligibilityRules.created_at",
     )
 
 

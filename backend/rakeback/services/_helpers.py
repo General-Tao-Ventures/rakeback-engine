@@ -1,32 +1,36 @@
 """Shared utilities for the service layer."""
 
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import uuid4
 
+# JSON column type — every JSON TEXT column in this DB stores a dict.
+JsonDict = dict[str, object]
+Serializable = Mapping[str, object] | list[Mapping[str, object]]
+
 
 def new_id() -> str:
-    """Generate a UUID string for use as primary key."""
     return str(uuid4())
 
 
 def now_iso() -> str:
-    """Current UTC timestamp as ISO-8601 string."""
     return datetime.now(UTC).isoformat()
 
 
 def today_iso() -> str:
-    """Current UTC date as ISO-8601 string."""
     return datetime.now(UTC).date().isoformat()
 
 
-def load_json(raw: str | None) -> dict | list | None:
-    """Deserialize a JSON TEXT column. Returns None for NULL."""
+def load_json(raw: str | None) -> JsonDict | None:
+    """Deserialize a JSON TEXT column. Always a dict or None in this codebase."""
     if not raw:
         return None
-    return json.loads(raw)
+    result: object = json.loads(raw)
+    if isinstance(result, dict):
+        return dict(result)
+    return None
 
 
-def dump_json(obj) -> str:
-    """Serialize a dict/list for storage in a JSON TEXT column."""
+def dump_json(obj: Serializable) -> str:
     return json.dumps(obj, default=str)

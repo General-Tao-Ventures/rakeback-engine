@@ -33,7 +33,7 @@ class PartnerUpdate(CamelModel):
 
 class RuleCreate(CamelModel):
     type: str = Field(..., description="wallet | memo | subnet-filter")
-    config: dict = Field(default_factory=dict)
+    config: dict[str, object] = Field(default_factory=dict)
     applies_from_block: int | None = None
 
 
@@ -41,7 +41,7 @@ class RuleResponse(CamelModel):
     id: str
     participant_id: str
     rule_type: str
-    config: dict
+    config: dict[str, object]
     applies_from_block: int | None
     created_at: str
     created_by: str

@@ -3,75 +3,75 @@
 Values MUST match the CHECK constraints in migrations/001_initial_schema.sql.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class CompletenessFlag(str, Enum):
+class CompletenessFlag(StrEnum):
     COMPLETE = "COMPLETE"
     PARTIAL = "PARTIAL"
     MISSING = "MISSING"
     INCOMPLETE = "INCOMPLETE"
 
 
-class DataSource(str, Enum):
+class DataSource(StrEnum):
     CHAIN = "CHAIN"
     CSV_OVERRIDE = "CSV_OVERRIDE"
     BACKFILL = "BACKFILL"
 
 
-class DelegationType(str, Enum):
+class DelegationType(StrEnum):
     ROOT_TAO = "ROOT_TAO"
     SUBNET_DTAO = "SUBNET_DTAO"
     CHILD_HOTKEY = "CHILD_HOTKEY"
 
 
-class AllocationMethod(str, Enum):
+class AllocationMethod(StrEnum):
     FIFO = "FIFO"
     PRORATA = "PRORATA"
     EXPLICIT = "EXPLICIT"
 
 
-class PaymentStatus(str, Enum):
+class PaymentStatus(StrEnum):
     UNPAID = "UNPAID"
     PAID = "PAID"
     DISPUTED = "DISPUTED"
 
 
-class PeriodType(str, Enum):
+class PeriodType(StrEnum):
     DAILY = "DAILY"
     MONTHLY = "MONTHLY"
 
 
-class ParticipantType(str, Enum):
+class ParticipantType(StrEnum):
     PARTNER = "PARTNER"
     DELEGATOR_GROUP = "DELEGATOR_GROUP"
     SUBNET = "SUBNET"
 
 
-class PartnerType(str, Enum):
+class PartnerType(StrEnum):
     NAMED = "NAMED"
     TAG_BASED = "TAG_BASED"
     HYBRID = "HYBRID"
 
 
-class AggregationMode(str, Enum):
+class AggregationMode(StrEnum):
     LUMP_SUM = "LUMP_SUM"
     PER_WALLET = "PER_WALLET"
 
 
-class GapType(str, Enum):
+class GapType(StrEnum):
     SNAPSHOT = "SNAPSHOT"
     YIELD = "YIELD"
     CONVERSION = "CONVERSION"
 
 
-class ResolutionStatus(str, Enum):
+class ResolutionStatus(StrEnum):
     OPEN = "OPEN"
     BACKFILLED = "BACKFILLED"
     UNRECOVERABLE = "UNRECOVERABLE"
 
 
-class RunType(str, Enum):
+class RunType(StrEnum):
     INGESTION = "INGESTION"
     ATTRIBUTION = "ATTRIBUTION"
     AGGREGATION = "AGGREGATION"
@@ -79,7 +79,15 @@ class RunType(str, Enum):
     RERUN = "RERUN"
 
 
-class RunStatus(str, Enum):
+class RuleType(StrEnum):
+    EXACT_ADDRESS = "EXACT_ADDRESS"
+    DELEGATION_TYPE = "DELEGATION_TYPE"
+    SUBNET = "SUBNET"
+    RT21_AUTO_DELEGATION = "RT21_AUTO_DELEGATION"
+    ALL = "ALL"
+
+
+class RunStatus(StrEnum):
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"

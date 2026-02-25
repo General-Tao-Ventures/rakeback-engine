@@ -6,30 +6,35 @@ Usage:
 """
 
 import argparse
+from decimal import Decimal
 
 import structlog
 
+from config import Settings, get_settings
 from db.connection import get_session
 from rakeback.services.tao_price_service import TaoPriceService
-from config import get_settings
 
-logger = structlog.get_logger(__name__)
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Fetch current TAO/USD price")
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Fetch current TAO/USD price",
+    )
     parser.add_argument(
-        "--block", type=int, default=None,
+        "--block",
+        type=int,
+        default=None,
         help="Associate the price with a specific block number",
     )
-    args = parser.parse_args(argv)
+    args: argparse.Namespace = parser.parse_args(argv)
 
-    settings = get_settings()
-    api_key = getattr(settings, "taostats_api_key", "")
+    settings: Settings = get_settings()
+    api_key: str = getattr(settings, "taostats_api_key", "")
 
     with get_session() as session:
-        service = TaoPriceService(session, api_key=api_key)
-        price = service.fetch_and_store(block_number=args.block)
+        service: TaoPriceService = TaoPriceService(session, api_key=api_key)
+        price: Decimal | None = service.fetch_and_store(block_number=args.block)
 
     if price is not None:
         logger.info("Stored TAO price", price_usd=str(price), block=args.block)

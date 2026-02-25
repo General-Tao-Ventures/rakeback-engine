@@ -7,7 +7,6 @@ DB selection:
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 from pydantic import Field
@@ -21,7 +20,7 @@ def _backend_root() -> Path:
 
 def _ensure_env_loaded() -> None:
     """Load .env from backend root (then project root). Idempotent."""
-    root = _backend_root()
+    root: Path = _backend_root()
     for candidate in (root / ".env", root.parent / ".env"):
         if candidate.exists():
             load_dotenv(candidate, override=False)
@@ -38,7 +37,7 @@ class DatabaseSettings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: Optional[str] = Field(
+    database_url: str | None = Field(
         default=None,
         description="PostgreSQL DSN; when set, uses Postgres.",
         validation_alias="DATABASE_URL",
@@ -49,7 +48,7 @@ class DatabaseSettings(BaseSettings):
     name: str = Field(default="rakeback")
     user: str = Field(default="rakeback")
     password: str = Field(default="")
-    sqlite_path: Optional[str] = Field(default="data/rakeback.db")
+    sqlite_path: str | None = Field(default="data/rakeback.db")
     pool_size: int = Field(default=5)
     pool_timeout: int = Field(default=30)
     pool_recycle: int = Field(default=1800)
@@ -58,8 +57,8 @@ class DatabaseSettings(BaseSettings):
         return bool((self.database_url or "").strip())
 
     def _resolved_sqlite_path(self) -> Path:
-        raw = (self.sqlite_path or "data/rakeback.db").strip()
-        path = Path(raw)
+        raw: str = (self.sqlite_path or "data/rakeback.db").strip()
+        path: Path = Path(raw)
         if not path.is_absolute():
             path = (_backend_root() / path).resolve()
         return path
@@ -67,7 +66,7 @@ class DatabaseSettings(BaseSettings):
     def _redacted_postgres_dsn(self) -> str:
         import re
 
-        url = (self.database_url or "").strip()
+        url: str = (self.database_url or "").strip()
         return re.sub(r":([^:@]+)@", r":***@", url) if url else ""
 
     @property
@@ -108,7 +107,7 @@ class Settings(BaseSettings):
 
     environment: str = Field(default="development")
     debug: bool = Field(default=False)
-    api_key: Optional[str] = Field(default=None, description="API key for mutation endpoints")
+    api_key: str | None = Field(default=None, description="API key for mutation endpoints")
     config_dir: Path = Field(default=Path("config"))
     data_dir: Path = Field(default=Path("data"))
     export_dir: Path = Field(default=Path("exports"))
@@ -116,13 +115,13 @@ class Settings(BaseSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     chain: ChainSettings = Field(default_factory=ChainSettings)
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def model_post_init(self, _context: object) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.export_dir.mkdir(parents=True, exist_ok=True)
+        self.export_dir.mkdir(parents=True, exist_ok=True)
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()
