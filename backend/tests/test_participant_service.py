@@ -2,6 +2,8 @@
 
 from sqlalchemy.orm import Session
 
+from app.schemas.partners import PartnerCreate, PartnerUpdate, RuleCreate
+from db.enums import ApiRuleType
 from rakeback.services._types import PartnerUI
 from rakeback.services.participant_service import ParticipantService
 
@@ -32,11 +34,14 @@ class TestCreatePartner:
             partner_type="named",
             rakeback_rate=25.0,
             rules=[
-                {"type": "wallet", "config": {"wallet": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUPZHb"}},
+                RuleCreate(
+                    type=ApiRuleType.WALLET,
+                    config={"wallet": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUPZHb"},
+                ),
             ],
         )
         assert len(result["rules"]) == 1
-        assert result["rules"][0]["type"] == "wallet"
+        assert result["rules"][0]["type"] == ApiRuleType.WALLET
 
 
 class TestGetPartner:
@@ -56,13 +61,15 @@ class TestUpdatePartner:
     def test_update_name(self, session: Session) -> None:
         svc: ParticipantService = ParticipantService(session)
         svc.create_partner(name="Original", partner_type="named", rakeback_rate=10.0)
-        result: PartnerUI | None = svc.update_partner("partner-original", {"name": "Updated"})
+        result: PartnerUI | None = svc.update_partner(
+            "partner-original", PartnerUpdate(name="Updated")
+        )
         assert result is not None
         assert result["name"] == "Updated"
 
     def test_update_nonexistent(self, session: Session) -> None:
         svc: ParticipantService = ParticipantService(session)
-        assert svc.update_partner("nope", {"name": "X"}) is None
+        assert svc.update_partner("nope", PartnerUpdate(name="X")) is None
 
 
 class TestListPartners:
@@ -82,13 +89,13 @@ class TestCreatePartnerFromRequest:
     def test_wallet_partner(self, session: Session) -> None:
         svc: ParticipantService = ParticipantService(session)
         result: PartnerUI = svc.create_partner_from_request(
-            {
-                "name": "Req Partner",
-                "type": "named",
-                "rakeback_rate": 30.0,
-                "wallet_address": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUPZHb",
-                "payout_address": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUPZHb",
-            }
+            PartnerCreate(
+                name="Req Partner",
+                type="named",
+                rakeback_rate=30.0,
+                wallet_address="5FHneW46xGXgs5mUiveU4sbTyGBzmstUPZHb",
+                payout_address="5FHneW46xGXgs5mUiveU4sbTyGBzmstUPZHb",
+            )
         )
         assert result["name"] == "Req Partner"
         assert result["rakebackRate"] == 30.0

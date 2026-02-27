@@ -30,6 +30,23 @@ class RulesSnapshot(TypedDict):
     participants: list[ParticipantSnapshot]
 
 
+# -- Matching Rules --------------------------------------------------------
+
+
+class MatchingRuleDict(TypedDict, total=False):
+    type: str
+    addresses: list[str]
+    memo_string: str
+    match_type: str
+    extrinsic_types: list[str]
+    subnet_ids: list[int]
+    delegation_types: list[str]
+
+
+class MatchingRulesDict(TypedDict):
+    rules: list[MatchingRuleDict]
+
+
 # -- Participant Service ---------------------------------------------------
 
 
@@ -52,8 +69,8 @@ class PartnerUI(TypedDict, total=False):
     status: str
     createdBy: str
     createdDate: str
-    walletAddress: object
-    memoTag: object
+    walletAddress: str | None
+    memoTag: str | None
     applyFromDate: str
     payoutAddress: str
     rules: list[RuleUI]

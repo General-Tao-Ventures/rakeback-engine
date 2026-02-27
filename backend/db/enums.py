@@ -80,11 +80,21 @@ class RunType(StrEnum):
 
 
 class RuleType(StrEnum):
+    """Engine-facing rule types used in matching_rules JSON."""
+
     EXACT_ADDRESS = "EXACT_ADDRESS"
     DELEGATION_TYPE = "DELEGATION_TYPE"
     SUBNET = "SUBNET"
     RT21_AUTO_DELEGATION = "RT21_AUTO_DELEGATION"
     ALL = "ALL"
+
+
+class ApiRuleType(StrEnum):
+    """API-facing rule types stored in eligibility_rules.rule_type."""
+
+    WALLET = "wallet"
+    MEMO = "memo"
+    SUBNET_FILTER = "subnet-filter"
 
 
 class RunStatus(StrEnum):

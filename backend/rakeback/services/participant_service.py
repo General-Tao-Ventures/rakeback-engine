@@ -2,15 +2,19 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
+from app.schemas.partners import PartnerCreate, PartnerUpdate, RuleCreate
 from db.enums import (
     AggregationMode,
+    ApiRuleType,
     ParticipantType,
     PartnerType,
+    RuleType,
 )
 from db.models import (
     EligibilityRules,
@@ -18,7 +22,13 @@ from db.models import (
     RuleChangeLog,
 )
 from rakeback.services._helpers import JsonDict, dump_json, load_json, new_id, now_iso
-from rakeback.services._types import ChangeLogEntry, PartnerUI, RuleUI
+from rakeback.services._types import (
+    ChangeLogEntry,
+    MatchingRuleDict,
+    MatchingRulesDict,
+    PartnerUI,
+    RuleUI,
+)
 
 
 def _rule_id() -> str:
@@ -30,7 +40,7 @@ def _participant_id_from_name(name: str) -> str:
     return f"partner-{base}"
 
 
-def _load_config(raw: object) -> JsonDict:
+def _load_config(raw: str | dict[str, Any] | None) -> JsonDict:
     """Load a rule config field, always returning a dict."""
     if isinstance(raw, str):
         return load_json(raw) or {}
@@ -39,54 +49,98 @@ def _load_config(raw: object) -> JsonDict:
     return {}
 
 
+def _cfg(config: JsonDict, snake: str, camel: str, default: Any = None) -> Any:
+    """Read a config value, accepting both snake_case and camelCase keys."""
+    return config.get(snake) or config.get(camel) or default
+
+
+def _wallet_rule(config: JsonDict) -> MatchingRuleDict | None:
+    addresses: list[str] | None = config.get("addresses") or (
+        [config["wallet"]] if config.get("wallet") else None
+    )
+    if not addresses:
+        return None
+    return MatchingRuleDict(type=RuleType.EXACT_ADDRESS, addresses=addresses)
+
+
+def _memo_rule(config: JsonDict) -> MatchingRuleDict:
+    return MatchingRuleDict(
+        type=RuleType.RT21_AUTO_DELEGATION,
+        memo_string=_cfg(config, "memo_string", "memoString", ""),
+        match_type=_cfg(config, "match_type", "matchType", "contains"),
+        extrinsic_types=_cfg(config, "extrinsic_types", "extrinsicTypes", ["stake", "unstake"]),
+    )
+
+
+def _subnet_filter_rule(config: JsonDict) -> MatchingRuleDict | None:
+    subnet_ids: list[int] = _cfg(config, "subnet_ids", "subnetIds", [])
+    delegation_types: list[str] = _cfg(
+        config, "delegation_types", "delegationTypes", ["subnet_dtao"]
+    )
+    if subnet_ids:
+        return MatchingRuleDict(type=RuleType.SUBNET, subnet_ids=subnet_ids)
+    if delegation_types:
+        return MatchingRuleDict(
+            type=RuleType.DELEGATION_TYPE,
+            delegation_types=delegation_types,
+        )
+    return None
+
+
+_RULE_BUILDERS = {
+    ApiRuleType.WALLET: _wallet_rule,
+    ApiRuleType.MEMO: _memo_rule,
+    ApiRuleType.SUBNET_FILTER: _subnet_filter_rule,
+}
+
+
+def _new_wallet_rule(address: str, label: str = "") -> RuleCreate:
+    """Build a RuleCreate for a wallet address."""
+    return RuleCreate(
+        type=ApiRuleType.WALLET,
+        config={"wallet": address, "addresses": [address], "label": label},
+    )
+
+
+def _new_memo_rule(memo_string: str, match_type: str = "contains") -> RuleCreate:
+    """Build a RuleCreate for a memo tag."""
+    return RuleCreate(
+        type=ApiRuleType.MEMO,
+        config={"memo_string": memo_string, "match_type": match_type},
+    )
+
+
+_PARTNER_TYPE_DISPLAY: dict[str, str] = {
+    PartnerType.NAMED: "Named",
+    PartnerType.TAG_BASED: "Tag-based",
+    PartnerType.HYBRID: "Hybrid",
+}
+
+
 def eligibility_rules_to_matching_rules(
     rules: list[EligibilityRules],
-) -> dict[str, object]:
+) -> MatchingRulesDict:
     """Convert EligibilityRule rows -> matching_rules dict for the rules engine."""
-    engine_rules: list[dict[str, object]] = []
+    engine_rules: list[MatchingRuleDict] = []
     for r in rules:
         config: JsonDict = _load_config(r.config)
-        rt: str = r.rule_type
-        if rt == "wallet":
-            addresses: object = config.get("addresses") or (
-                [config["wallet"]] if config.get("wallet") else []
-            )
-            if addresses:
-                engine_rules.append({"type": "EXACT_ADDRESS", "addresses": addresses})
-        elif rt == "memo":
-            engine_rules.append(
-                {
-                    "type": "RT21_AUTO_DELEGATION",
-                    "memo_string": config.get("memo_string", config.get("memoString", "")),
-                    "match_type": config.get("match_type", config.get("matchType", "contains")),
-                    "extrinsic_types": config.get(
-                        "extrinsic_types",
-                        config.get("extrinsicTypes", ["stake", "unstake"]),
-                    ),
-                }
-            )
-        elif rt == "subnet-filter":
-            subnet_ids: object = config.get("subnet_ids") or config.get("subnetIds") or []
-            delegation_types: object = (
-                config.get("delegation_types") or config.get("delegationTypes") or ["subnet_dtao"]
-            )
-            if subnet_ids:
-                engine_rules.append({"type": "SUBNET", "subnet_ids": subnet_ids})
-            elif delegation_types:
-                engine_rules.append(
-                    {
-                        "type": "DELEGATION_TYPE",
-                        "delegation_types": delegation_types,
-                        "subnet_ids": subnet_ids or None,
-                    }
-                )
-    return {"rules": engine_rules}
+        try:
+            api_type = ApiRuleType(r.rule_type)
+        except ValueError:
+            continue
+        builder = _RULE_BUILDERS.get(api_type)
+        if builder is None:
+            continue
+        rule: MatchingRuleDict | None = builder(config)
+        if rule is not None:
+            engine_rules.append(rule)
+    return MatchingRulesDict(rules=engine_rules)
 
 
 def _build_eligibility_rule(
     participant_id: str,
-    rule_type: str,
-    config: dict[str, object],
+    rule_type: ApiRuleType,
+    config: dict[str, Any],
     applies_from_block: int | None = None,
     created_by: str = "system",
 ) -> EligibilityRules:
@@ -157,72 +211,29 @@ class ParticipantService:
         rules: list[EligibilityRules] = self._get_rules(pid)
         return self._participant_to_ui(p, rules)
 
-    def create_partner_from_request(self, data: dict[str, object]) -> PartnerUI:
-        name: str = str(data["name"])
-        partner_type: str = str(data.get("type", "named"))
-        rakeback_rate: float = float(str(data.get("rakeback_rate", 0) or 0))
-        priority: int = int(str(data.get("priority", 1) or 1))
-        payout_address: str = str(data.get("payout_address", "") or "")
-        apply_from_date: object = data.get("apply_from_date")
-        apply_from_block: object = data.get("apply_from_block")
-
-        # Build rules from flat request fields
-        rules: list[dict[str, object]] = []
-        if data.get("wallet_address"):
-            rules.append(
-                {
-                    "type": "wallet",
-                    "config": {
-                        "wallet": data["wallet_address"],
-                        "addresses": [data["wallet_address"]],
-                        "label": data.get("wallet_label", ""),
-                    },
-                }
-            )
-        if data.get("memo_keyword"):
-            rules.append(
-                {
-                    "type": "memo",
-                    "config": {
-                        "memo_string": data["memo_keyword"],
-                        "match_type": data.get("match_type", "contains"),
-                    },
-                }
-            )
-        if data.get("hybrid_wallet"):
-            rules.append(
-                {
-                    "type": "wallet",
-                    "config": {
-                        "wallet": data["hybrid_wallet"],
-                        "addresses": [data["hybrid_wallet"]],
-                        "label": data.get("hybrid_wallet_label", ""),
-                    },
-                }
-            )
-        if data.get("hybrid_memo"):
-            rules.append(
-                {
-                    "type": "memo",
-                    "config": {
-                        "memo_string": data["hybrid_memo"],
-                        "match_type": data.get("hybrid_match_type", "contains"),
-                    },
-                }
-            )
+    def create_partner_from_request(self, data: PartnerCreate) -> PartnerUI:
+        rules: list[RuleCreate] = []
+        if data.wallet_address:
+            rules.append(_new_wallet_rule(data.wallet_address, data.wallet_label or ""))
+        if data.memo_keyword:
+            rules.append(_new_memo_rule(data.memo_keyword, data.match_type or "contains"))
+        if data.hybrid_wallet:
+            rules.append(_new_wallet_rule(data.hybrid_wallet, data.hybrid_wallet_label or ""))
+        if data.hybrid_memo:
+            rules.append(_new_memo_rule(data.hybrid_memo, data.hybrid_match_type or "contains"))
 
         effective_from: date = (
-            date.fromisoformat(str(apply_from_date)) if apply_from_date else date.today()
+            date.fromisoformat(data.apply_from_date) if data.apply_from_date else date.today()
         )
         return self.create_partner(
-            name=name,
-            partner_type=partner_type,
-            rakeback_rate=rakeback_rate,
-            priority=priority,
-            payout_address=payout_address,
+            name=data.name,
+            partner_type=data.type,
+            rakeback_rate=data.rakeback_rate,
+            priority=data.priority,
+            payout_address=data.payout_address,
             rules=rules,
             effective_from=effective_from,
-            applies_from_block=int(str(apply_from_block)) if apply_from_block else None,
+            applies_from_block=data.apply_from_block,
         )
 
     def create_partner(
@@ -232,7 +243,7 @@ class ParticipantService:
         rakeback_rate: float,
         priority: int = 1,
         payout_address: str = "",
-        rules: list[dict[str, object]] | None = None,
+        rules: list[RuleCreate] | None = None,
         effective_from: date | None = None,
         applies_from_block: int | None = None,
         created_by: str = "system",
@@ -267,7 +278,7 @@ class ParticipantService:
 
         rule_entities: list[EligibilityRules] = []
         for r in rules or []:
-            entity: EligibilityRules | None = self._create_rule_from_ui(
+            entity: EligibilityRules | None = self._create_rule_entity(
                 participant.id, r, block, created_by
             )
             if entity:
@@ -290,22 +301,22 @@ class ParticipantService:
     def update_partner(
         self,
         pid: str,
-        updates: dict[str, object],
+        updates: PartnerUpdate,
         created_by: str = "system",
     ) -> PartnerUI | None:
         p: RakebackParticipants | None = self._get_participant(pid)
         if not p:
             return None
-        if "name" in updates:
-            p.name = str(updates["name"])
-        if "rakeback_rate" in updates:
-            p.rakeback_percentage = Decimal(str(float(str(updates["rakeback_rate"])) / 100))
-        if "priority" in updates:
-            p.priority = int(str(updates["priority"]))
-        if "payout_address" in updates:
-            p.payout_address = str(updates["payout_address"])
-        if "partner_type" in updates:
-            pt: str = str(updates["partner_type"]).replace("-", "_").upper()
+        if updates.name is not None:
+            p.name = updates.name
+        if updates.rakeback_rate is not None:
+            p.rakeback_percentage = Decimal(str(updates.rakeback_rate / 100))
+        if updates.priority is not None:
+            p.priority = updates.priority
+        if updates.payout_address is not None:
+            p.payout_address = updates.payout_address
+        if updates.partner_type is not None:
+            pt: str = updates.partner_type.replace("-", "_").upper()
             p.partner_type = PartnerType(pt).value
         p.updated_at = now_iso()
         self.session.flush()
@@ -314,13 +325,13 @@ class ParticipantService:
     def add_rule(
         self,
         participant_id: str,
-        rule: dict[str, object],
+        rule: RuleCreate,
         created_by: str = "system",
     ) -> RuleUI | None:
         p: RakebackParticipants | None = self._get_participant(participant_id)
         if not p:
             return None
-        entity: EligibilityRules | None = self._create_rule_from_ui(
+        entity: EligibilityRules | None = self._create_rule_entity(
             participant_id, rule, 0, created_by
         )
         if not entity:
@@ -359,23 +370,21 @@ class ParticipantService:
             rules = self._get_rules(p.id)
 
         pt_val: str = p.partner_type or PartnerType.NAMED.value
-        partner_type_ui: str = {"NAMED": "Named", "TAG_BASED": "Tag-based", "HYBRID": "Hybrid"}.get(
-            pt_val, "Named"
-        )
+        partner_type_ui: str = _PARTNER_TYPE_DISPLAY.get(pt_val, "Named")
 
-        wallet: object = None
-        memo_tag: object = None
+        wallet: str | None = None
+        memo_tag: str | None = None
         for r in rules:
             cfg: JsonDict = _load_config(r.config)
-            if r.rule_type == "wallet":
-                addrs: object = cfg.get("addresses")
+            if r.rule_type == ApiRuleType.WALLET:
+                addrs: list[str] | None = cfg.get("addresses")
                 wallet = cfg.get("wallet") or (
                     addrs[0] if isinstance(addrs, list) and addrs else None
                 )
                 if wallet:
                     break
-            elif r.rule_type == "memo":
-                memo_tag = cfg.get("memo_string") or cfg.get("memoString")
+            elif r.rule_type == ApiRuleType.MEMO:
+                memo_tag = _cfg(cfg, "memo_string", "memoString")
                 if memo_tag:
                     break
 
@@ -413,60 +422,60 @@ class ParticipantService:
             createdBy=r.created_by,
         )
 
-    def _create_rule_from_ui(
+    def _create_rule_entity(
         self,
         participant_id: str,
-        rule: dict[str, object],
+        rule: RuleCreate,
         default_block: int,
         created_by: str,
     ) -> EligibilityRules | None:
-        rule_type: str = str(rule.get("type", "wallet"))
-        config_raw: object = rule.get("config", {})
-        config: dict[str, object] = config_raw if isinstance(config_raw, dict) else {}
-        block_val: object = (
-            rule.get("appliesFromBlock") or rule.get("applies_from_block") or default_block
-        )
-        block: int = int(str(block_val)) if block_val else default_block
+        rule_type: str = rule.type
+        config: dict[str, Any] = rule.config
+        block: int = rule.applies_from_block or default_block
 
-        if rule_type == "wallet":
-            wallet: object = config.get("wallet") or rule.get("walletAddress")
+        if rule_type == ApiRuleType.WALLET:
+            wallet: str | None = config.get("wallet")
             if not wallet:
                 return None
             return _build_eligibility_rule(
                 participant_id=participant_id,
-                rule_type="wallet",
-                config={"wallet": wallet, "addresses": [wallet], "label": config.get("label", "")},
+                rule_type=ApiRuleType.WALLET,
+                config={
+                    "wallet": wallet,
+                    "addresses": [wallet],
+                    "label": config.get("label", ""),
+                },
                 applies_from_block=block or None,
                 created_by=created_by,
             )
-        if rule_type == "memo":
-            memo: object = (
-                config.get("memo_string") or config.get("memoString") or rule.get("memoKeyword")
-            )
+        if rule_type == ApiRuleType.MEMO:
+            memo: str | None = _cfg(config, "memo_string", "memoString")
             if not memo:
                 return None
             return _build_eligibility_rule(
                 participant_id=participant_id,
-                rule_type="memo",
+                rule_type=ApiRuleType.MEMO,
                 config={
                     "memo_string": memo,
-                    "match_type": config.get("match_type", config.get("matchType", "contains")),
-                    "extrinsic_types": config.get(
+                    "match_type": _cfg(config, "match_type", "matchType", "contains"),
+                    "extrinsic_types": _cfg(
+                        config,
                         "extrinsic_types",
-                        config.get("extrinsicTypes", ["stake", "unstake", "redelegate"]),
+                        "extrinsicTypes",
+                        ["stake", "unstake", "redelegate"],
                     ),
                 },
                 applies_from_block=block or None,
                 created_by=created_by,
             )
-        if rule_type == "subnet-filter":
+        if rule_type == ApiRuleType.SUBNET_FILTER:
             return _build_eligibility_rule(
                 participant_id=participant_id,
-                rule_type="subnet-filter",
+                rule_type=ApiRuleType.SUBNET_FILTER,
                 config={
-                    "subnet_ids": config.get("subnet_ids", config.get("subnetIds", [])),
-                    "delegation_types": config.get(
-                        "delegation_types", config.get("delegationTypes", ["subnet_dtao"])
+                    "subnet_ids": _cfg(config, "subnet_ids", "subnetIds", []),
+                    "delegation_types": _cfg(
+                        config, "delegation_types", "delegationTypes", ["subnet_dtao"]
                     ),
                 },
                 applies_from_block=block or None,

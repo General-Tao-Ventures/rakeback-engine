@@ -3,9 +3,10 @@
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
-JsonDict = dict[str, object]
+JsonDict = dict[str, Any]
 Serializable = Mapping[str, object] | list[Mapping[str, object]]
 
 

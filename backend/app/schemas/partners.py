@@ -1,5 +1,7 @@
 """Partner request/response schemas."""
 
+from typing import Any
+
 from pydantic import Field
 
 from app.schemas.common import CamelModel
@@ -33,7 +35,7 @@ class PartnerUpdate(CamelModel):
 
 class RuleCreate(CamelModel):
     type: str = Field(..., description="wallet | memo | subnet-filter")
-    config: dict[str, object] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
     applies_from_block: int | None = None
 
 
@@ -41,7 +43,7 @@ class RuleResponse(CamelModel):
     id: str
     participant_id: str
     rule_type: str
-    config: dict[str, object]
+    config: dict[str, Any]
     applies_from_block: int | None
     created_at: str
     created_by: str

@@ -39,7 +39,7 @@ def create_partner(
     _key: str = Depends(get_api_key),
 ) -> PartnerUI:
     svc: ParticipantService = ParticipantService(db)
-    return svc.create_partner_from_request(body.model_dump())
+    return svc.create_partner_from_request(body)
 
 
 @router.put("/partners/{partner_id}")
@@ -50,8 +50,7 @@ def update_partner(
     _key: str = Depends(get_api_key),
 ) -> PartnerUI:
     svc: ParticipantService = ParticipantService(db)
-    updates: dict[str, object] = {k: v for k, v in body.model_dump().items() if v is not None}
-    p: PartnerUI | None = svc.update_partner(partner_id, updates)
+    p: PartnerUI | None = svc.update_partner(partner_id, body)
     if not p:
         raise HTTPException(status_code=404, detail="Partner not found")
     return p
@@ -65,7 +64,7 @@ def add_partner_rule(
     _key: str = Depends(get_api_key),
 ) -> RuleUI:
     svc: ParticipantService = ParticipantService(db)
-    rule: RuleUI | None = svc.add_rule(partner_id, body.model_dump())
+    rule: RuleUI | None = svc.add_rule(partner_id, body)
     if not rule:
         raise HTTPException(status_code=404, detail="Partner not found or invalid rule")
     return rule
