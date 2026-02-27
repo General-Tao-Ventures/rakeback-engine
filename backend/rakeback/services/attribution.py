@@ -402,12 +402,12 @@ class AttributionEngine:
                 delegator_address=d.delegator_address,
                 delegation_type=d.delegation_type,
                 subnet_id=d.subnet_id,
-                attributed_dtao=float(attributed_dtao),
-                delegation_proportion=float(proportion),
+                attributed_dtao=attributed_dtao,
+                delegation_proportion=proportion,
                 completeness_flag=completeness.value,
                 computation_timestamp=now_iso(),
                 run_id=run_id,
-                tao_allocated=0.0,
+                tao_allocated=Decimal(0),
                 fully_allocated=0,
             )
             attributions.append(attr)
@@ -415,7 +415,7 @@ class AttributionEngine:
         remainder: Decimal = yield_earned - total_attributed
         if remainder > 0 and attributions:
             largest: BlockAttributions = max(attributions, key=lambda a: a.attributed_dtao)
-            largest.attributed_dtao = float(Decimal(str(largest.attributed_dtao)) + remainder)
+            largest.attributed_dtao = Decimal(str(largest.attributed_dtao)) + remainder
             total_attributed += remainder
 
         if total_attributed != yield_earned:

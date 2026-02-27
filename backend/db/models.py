@@ -5,6 +5,7 @@ DO NOT EDIT by hand. Re-generate with:
 """
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -49,13 +50,13 @@ class BlockAttributions(Base):
     delegator_address: Mapped[str] = mapped_column(nullable=False)
     delegation_type: Mapped[str] = mapped_column(nullable=False)
     subnet_id: Mapped[int | None] = mapped_column()
-    attributed_dtao: Mapped[float] = mapped_column(nullable=False)
-    delegation_proportion: Mapped[float] = mapped_column(nullable=False)
+    attributed_dtao: Mapped[Decimal] = mapped_column(nullable=False)
+    delegation_proportion: Mapped[Decimal] = mapped_column(nullable=False)
     completeness_flag: Mapped[str] = mapped_column(nullable=False, default="COMPLETE")
     computation_timestamp: Mapped[str] = mapped_column(nullable=False)
     run_id: Mapped[str] = mapped_column(nullable=False)
-    tao_allocated: Mapped[float] = mapped_column(nullable=False, default="0")
-    fully_allocated: Mapped[int] = mapped_column(nullable=False, default="0")
+    tao_allocated: Mapped[Decimal] = mapped_column(nullable=False, default=Decimal("0"))
+    fully_allocated: Mapped[int] = mapped_column(nullable=False, default=0)
 
     __table_args__ = (UniqueConstraint("block_number", "validator_hotkey", "delegator_address"),)
 
@@ -70,7 +71,7 @@ class BlockSnapshots(Base):
     ingestion_timestamp: Mapped[str] = mapped_column(nullable=False)
     data_source: Mapped[str] = mapped_column(nullable=False, default="CHAIN")
     completeness_flag: Mapped[str] = mapped_column(nullable=False, default="COMPLETE")
-    total_stake: Mapped[float] = mapped_column(nullable=False, default="0")
+    total_stake: Mapped[Decimal] = mapped_column(nullable=False, default=Decimal("0"))
     delegations = relationship(
         "DelegationEntries",
         back_populates="snapshot",
@@ -84,7 +85,7 @@ class BlockYields(Base):
 
     block_number: Mapped[int] = mapped_column(primary_key=True)
     validator_hotkey: Mapped[str] = mapped_column(primary_key=True)
-    total_dtao_earned: Mapped[float] = mapped_column(nullable=False, default="0")
+    total_dtao_earned: Mapped[Decimal] = mapped_column(nullable=False, default=Decimal("0"))
     data_source: Mapped[str] = mapped_column(nullable=False, default="CHAIN")
     completeness_flag: Mapped[str] = mapped_column(nullable=False, default="COMPLETE")
     ingestion_timestamp: Mapped[str] = mapped_column(nullable=False)
@@ -103,13 +104,13 @@ class ConversionEvents(Base):
     block_number: Mapped[int] = mapped_column(nullable=False)
     transaction_hash: Mapped[str] = mapped_column(nullable=False)
     validator_hotkey: Mapped[str] = mapped_column(nullable=False)
-    dtao_amount: Mapped[float] = mapped_column(nullable=False)
-    tao_amount: Mapped[float] = mapped_column(nullable=False)
-    conversion_rate: Mapped[float] = mapped_column(nullable=False)
+    dtao_amount: Mapped[Decimal] = mapped_column(nullable=False)
+    tao_amount: Mapped[Decimal] = mapped_column(nullable=False)
+    conversion_rate: Mapped[Decimal] = mapped_column(nullable=False)
     subnet_id: Mapped[int | None] = mapped_column()
     data_source: Mapped[str] = mapped_column(nullable=False, default="CHAIN")
     ingestion_timestamp: Mapped[str] = mapped_column(nullable=False)
-    fully_allocated: Mapped[int] = mapped_column(nullable=False, default="0")
+    fully_allocated: Mapped[int] = mapped_column(nullable=False, default=0)
 
     __table_args__ = (UniqueConstraint("transaction_hash"),)
     allocations = relationship(
@@ -145,9 +146,9 @@ class DelegationEntries(Base):
     delegator_address: Mapped[str] = mapped_column(nullable=False)
     delegation_type: Mapped[str] = mapped_column(nullable=False)
     subnet_id: Mapped[int | None] = mapped_column()
-    balance_dtao: Mapped[float] = mapped_column(nullable=False, default="0")
-    balance_tao: Mapped[float | None] = mapped_column()
-    proportion: Mapped[float] = mapped_column(nullable=False)
+    balance_dtao: Mapped[Decimal] = mapped_column(nullable=False, default=Decimal("0"))
+    balance_tao: Mapped[Decimal | None] = mapped_column()
+    proportion: Mapped[Decimal] = mapped_column(nullable=False)
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -191,9 +192,9 @@ class ProcessingRuns(Base):
     error_details: Mapped[str | None] = mapped_column()
     completeness_summary: Mapped[str | None] = mapped_column()
     config_snapshot: Mapped[str | None] = mapped_column()
-    records_processed: Mapped[int] = mapped_column(nullable=False, default="0")
-    records_created: Mapped[int] = mapped_column(nullable=False, default="0")
-    records_skipped: Mapped[int] = mapped_column(nullable=False, default="0")
+    records_processed: Mapped[int] = mapped_column(nullable=False, default=0)
+    records_created: Mapped[int] = mapped_column(nullable=False, default=0)
+    records_skipped: Mapped[int] = mapped_column(nullable=False, default=0)
     parent_run_id: Mapped[str | None] = mapped_column()
 
 
@@ -207,10 +208,10 @@ class RakebackLedgerEntries(Base):
     participant_id: Mapped[str] = mapped_column(nullable=False)
     participant_type: Mapped[str] = mapped_column(nullable=False)
     validator_hotkey: Mapped[str] = mapped_column(nullable=False)
-    gross_dtao_attributed: Mapped[float] = mapped_column(nullable=False, default="0")
-    gross_tao_converted: Mapped[float] = mapped_column(nullable=False, default="0")
-    rakeback_percentage: Mapped[float] = mapped_column(nullable=False)
-    tao_owed: Mapped[float] = mapped_column(nullable=False)
+    gross_dtao_attributed: Mapped[Decimal] = mapped_column(nullable=False, default=Decimal("0"))
+    gross_tao_converted: Mapped[Decimal] = mapped_column(nullable=False, default=Decimal("0"))
+    rakeback_percentage: Mapped[Decimal] = mapped_column(nullable=False)
+    tao_owed: Mapped[Decimal] = mapped_column(nullable=False)
     payment_status: Mapped[str] = mapped_column(nullable=False, default="UNPAID")
     payment_tx_hash: Mapped[str | None] = mapped_column()
     payment_timestamp: Mapped[str | None] = mapped_column()
@@ -219,8 +220,8 @@ class RakebackLedgerEntries(Base):
     run_id: Mapped[str] = mapped_column(nullable=False)
     created_at: Mapped[str] = mapped_column(nullable=False)
     updated_at: Mapped[str] = mapped_column(nullable=False)
-    block_count: Mapped[int] = mapped_column(nullable=False, default="0")
-    attribution_count: Mapped[int] = mapped_column(nullable=False, default="0")
+    block_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    attribution_count: Mapped[int] = mapped_column(nullable=False, default=0)
 
     __table_args__ = (
         UniqueConstraint("participant_id", "period_type", "period_start", "validator_hotkey"),
@@ -233,10 +234,10 @@ class RakebackParticipants(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(nullable=False)
     partner_type: Mapped[str | None] = mapped_column(default="NAMED")
-    priority: Mapped[int] = mapped_column(nullable=False, default="1")
+    priority: Mapped[int] = mapped_column(nullable=False, default=1)
     type: Mapped[str] = mapped_column(nullable=False)
     matching_rules: Mapped[str] = mapped_column(nullable=False, default='{"rules": []}')
-    rakeback_percentage: Mapped[float] = mapped_column(nullable=False)
+    rakeback_percentage: Mapped[Decimal] = mapped_column(nullable=False)
     effective_from: Mapped[str] = mapped_column(nullable=False)
     effective_to: Mapped[str | None] = mapped_column()
     payout_address: Mapped[str] = mapped_column(nullable=False)
@@ -277,7 +278,7 @@ class TaoAllocations(Base):
         ForeignKey("block_attributions.id"),
         nullable=False,
     )
-    tao_allocated: Mapped[float] = mapped_column(nullable=False)
+    tao_allocated: Mapped[Decimal] = mapped_column(nullable=False)
     allocation_method: Mapped[str] = mapped_column(nullable=False, default="PRORATA")
     completeness_flag: Mapped[str] = mapped_column(nullable=False, default="COMPLETE")
     run_id: Mapped[str] = mapped_column(nullable=False)
@@ -290,7 +291,7 @@ class TaoPrices(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     timestamp: Mapped[str] = mapped_column(nullable=False)
-    price_usd: Mapped[float] = mapped_column(nullable=False)
+    price_usd: Mapped[Decimal] = mapped_column(nullable=False)
     source: Mapped[str] = mapped_column(nullable=False, default="taostats")
     block_number: Mapped[int | None] = mapped_column()
     created_at: Mapped[str] = mapped_column(nullable=False)
@@ -303,7 +304,7 @@ class YieldSources(Base):
     block_number: Mapped[int] = mapped_column(nullable=False)
     validator_hotkey: Mapped[str] = mapped_column(nullable=False)
     subnet_id: Mapped[int] = mapped_column(nullable=False)
-    dtao_amount: Mapped[float] = mapped_column(nullable=False)
+    dtao_amount: Mapped[Decimal] = mapped_column(nullable=False)
 
     __table_args__ = (
         ForeignKeyConstraint(

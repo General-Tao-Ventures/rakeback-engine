@@ -58,6 +58,7 @@ DO NOT EDIT by hand. Re-generate with:
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -206,7 +207,7 @@ def generate(engine: object) -> str:
             elif sa_type in ("Integer", "BigInteger"):
                 py_type = "int | None" if nullable else "int"
             elif "Numeric" in sa_type:
-                py_type = "float | None" if nullable else "float"
+                py_type = "Decimal | None" if nullable else "Decimal"
             elif sa_type == "Date":
                 py_type = "str | None" if nullable else "str"
             elif sa_type == "Boolean":
@@ -237,9 +238,19 @@ def generate(engine: object) -> str:
                 if isinstance(default, str):
                     # Strip wrapping quotes from SQLite defaults like "'CHAIN'"
                     clean: str = default.strip("'\"")
-                    # Escape inner quotes for valid Python
-                    clean = clean.replace('"', '\\"')
-                    mc_kwargs.append(f'default="{clean}"')
+                    # Use proper typed defaults for numeric columns
+                    if "Numeric" in sa_type:
+                        mc_kwargs.append(f"default=Decimal({clean!r})")
+                    elif sa_type in ("Integer", "BigInteger"):
+                        try:
+                            mc_kwargs.append(f"default={int(clean)}")
+                        except ValueError:
+                            clean = clean.replace('"', '\\"')
+                            mc_kwargs.append(f'default="{clean}"')
+                    else:
+                        # Escape inner quotes for valid Python
+                        clean = clean.replace('"', '\\"')
+                        mc_kwargs.append(f'default="{clean}"')
                 else:
                     mc_kwargs.append(f"default={default}")
 

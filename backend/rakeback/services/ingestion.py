@@ -126,7 +126,7 @@ class IngestionService:
             ingestion_timestamp=now_iso(),
             data_source=data_source.value,
             completeness_flag=completeness_flag.value,
-            total_stake=float(total_stake),
+            total_stake=total_stake,
         )
         for d in delegations:
             balance: Decimal = Decimal(str(d.get("balance_dtao", 0)))
@@ -138,9 +138,9 @@ class IngestionService:
                 delegator_address=d["delegator_address"],
                 delegation_type=DelegationType(str(d["delegation_type"]).upper()).value,
                 subnet_id=d.get("subnet_id"),
-                balance_dtao=float(balance),
-                balance_tao=float(str(d["balance_tao"])) if d.get("balance_tao") else None,
-                proportion=float(proportion),
+                balance_dtao=balance,
+                balance_tao=Decimal(str(d["balance_tao"])) if d.get("balance_tao") else None,
+                proportion=proportion,
             )
             snap.delegations.append(entry)
         self.session.add(snap)
@@ -159,7 +159,7 @@ class IngestionService:
         by: BlockYields = BlockYields(
             block_number=block_number,
             validator_hotkey=vhk,
-            total_dtao_earned=float(total_dtao_earned),
+            total_dtao_earned=total_dtao_earned,
             data_source=data_source.value,
             completeness_flag=completeness_flag.value,
             ingestion_timestamp=now_iso(),
@@ -171,7 +171,7 @@ class IngestionService:
                     block_number=block_number,
                     validator_hotkey=vhk,
                     subnet_id=src["subnet_id"],
-                    dtao_amount=float(Decimal(str(src["dtao_amount"]))),
+                    dtao_amount=Decimal(str(src["dtao_amount"])),
                 )
                 by.yield_sources.append(ys)
         self.session.add(by)
@@ -411,9 +411,9 @@ class IngestionService:
                     block_number=conv.block_number,
                     transaction_hash=conv.transaction_hash,
                     validator_hotkey=conv.validator_hotkey,
-                    dtao_amount=float(conv.dtao_amount),
-                    tao_amount=float(conv.tao_amount),
-                    conversion_rate=float(conv.conversion_rate),
+                    dtao_amount=Decimal(str(conv.dtao_amount)),
+                    tao_amount=Decimal(str(conv.tao_amount)),
+                    conversion_rate=Decimal(str(conv.conversion_rate)),
                     subnet_id=conv.subnet_id,
                     data_source=DataSource.CHAIN.value,
                     ingestion_timestamp=now_iso(),

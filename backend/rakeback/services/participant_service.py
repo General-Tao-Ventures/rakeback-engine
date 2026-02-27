@@ -255,7 +255,7 @@ class ParticipantService:
             partner_type=pt.value,
             priority=priority,
             matching_rules=dump_json({"rules": []}),
-            rakeback_percentage=float(Decimal(str(rakeback_rate / 100))),
+            rakeback_percentage=Decimal(str(rakeback_rate / 100)),
             effective_from=effective.isoformat(),
             effective_to=None,
             payout_address=payout_address or "0x0",
@@ -299,7 +299,7 @@ class ParticipantService:
         if "name" in updates:
             p.name = str(updates["name"])
         if "rakeback_rate" in updates:
-            p.rakeback_percentage = float(Decimal(str(float(str(updates["rakeback_rate"])) / 100)))
+            p.rakeback_percentage = Decimal(str(float(str(updates["rakeback_rate"])) / 100))
         if "priority" in updates:
             p.priority = int(str(updates["priority"]))
         if "payout_address" in updates:

@@ -118,7 +118,6 @@ class Settings(BaseSettings):
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.export_dir.mkdir(parents=True, exist_ok=True)
-        self.export_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache

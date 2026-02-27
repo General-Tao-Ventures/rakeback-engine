@@ -4,12 +4,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./backend/data:/app/data
-      - ./backend/.env:/app/.env:ro
-    environment:
-      - DB_SQLITE_PATH=data/rakeback.db
+    env_file:
+      - .env.docker
     restart: unless-stopped
 
   frontend:
@@ -17,6 +16,8 @@ services:
       context: ./frontend
     ports:
       - "5173:5173"
+    environment:
+      - VITE_PROXY_TARGET=http://api:8000
     depends_on:
       - api
     restart: unless-stopped

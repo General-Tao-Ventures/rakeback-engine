@@ -4,6 +4,7 @@ Keeps route-facing methods explicit about their shape instead of returning bare 
 """
 
 import sys
+from decimal import Decimal
 
 if sys.version_info >= (3, 12):
     from typing import TypedDict
@@ -113,10 +114,10 @@ class LedgerEntryDict(TypedDict):
     participant_id: str
     participant_type: str
     validator_hotkey: str
-    gross_dtao_attributed: float
-    gross_tao_converted: float
-    rakeback_percentage: float
-    tao_owed: float
+    gross_dtao_attributed: Decimal
+    gross_tao_converted: Decimal
+    rakeback_percentage: Decimal
+    tao_owed: Decimal
     payment_status: str
     payment_tx_hash: str | None
     payment_timestamp: str | None

@@ -58,7 +58,7 @@ class TaoPriceService:
             price: TaoPrices = TaoPrices(
                 id=new_id(),
                 timestamp=now.isoformat(),
-                price_usd=float(price_usd),
+                price_usd=price_usd,
                 source="taostats",
                 block_number=block_number,
                 created_at=now_iso(),

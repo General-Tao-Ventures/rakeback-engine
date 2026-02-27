@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routes import attributions, conversions, exports, partners, rakeback
+from app.routes import attributions, completeness, conversions, exports, partners, rakeback
 from app.routes.health import get_db_info
 from config import Settings, get_settings
 from rakeback.services._types import DbInfoDict
@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(conversions.router)
     app.include_router(rakeback.router)
     app.include_router(exports.router)
+    app.include_router(completeness.router)
 
     return app
 

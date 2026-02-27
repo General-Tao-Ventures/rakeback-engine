@@ -50,7 +50,7 @@ def _seed_snapshot(session: Session, block: int, ts: str = "2026-01-15T00:00:00"
         block_hash="0x" + "a" * 64,
         timestamp=ts,
         ingestion_timestamp=now_iso(),
-        total_stake=1000.0,
+        total_stake=Decimal("1000"),
     )
     session.add(s)
     session.flush()
@@ -65,8 +65,8 @@ def _seed_attribution(
         validator_hotkey=VHK,
         delegator_address=delegator,
         delegation_type="ROOT_TAO",
-        attributed_dtao=float(dtao),
-        delegation_proportion=1.0,
+        attributed_dtao=dtao,
+        delegation_proportion=Decimal("1"),
         completeness_flag=CompletenessFlag.COMPLETE.value,
         computation_timestamp=now_iso(),
         run_id=run_id,
@@ -81,9 +81,9 @@ def _seed_conversion(session: Session, block: int, dtao: Decimal, tao: Decimal) 
         block_number=block,
         transaction_hash="0x" + new_id()[:60],
         validator_hotkey=VHK,
-        dtao_amount=float(dtao),
-        tao_amount=float(tao),
-        conversion_rate=float(tao / dtao) if dtao else 0,
+        dtao_amount=dtao,
+        tao_amount=tao,
+        conversion_rate=(tao / dtao) if dtao else Decimal(0),
         ingestion_timestamp=now_iso(),
     )
     session.add(c)
