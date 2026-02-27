@@ -5,7 +5,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_db
-from db.enums import CompletenessFlag, ResolutionStatus
+from app.schemas.completeness import (
+    ActivityEntry,
+    CompletenessResponse,
+    ConversionMetrics,
+    CoverageMetrics,
+    DataIssue,
+    LedgerMetrics,
+    SystemMetrics,
+)
+from db.enums import CompletenessFlag, GapType, ResolutionStatus, RunStatus
 from db.models import (
     BlockSnapshots,
     BlockYields,
@@ -18,8 +27,22 @@ from db.models import (
 router: APIRouter = APIRouter(prefix="/api/health", tags=["completeness"])
 
 
-@router.get("/completeness")
-def get_completeness(db: Session = Depends(get_db)) -> dict:
+def _pct(complete: int, total: int) -> float:
+    return round(complete / total * 100, 3) if total > 0 else 100.0
+
+
+def _run_status(status: str) -> str:
+    if status == RunStatus.SUCCESS:
+        return "success"
+    if status == RunStatus.PARTIAL:
+        return "warning"
+    if status == RunStatus.FAILED:
+        return "error"
+    return "info"
+
+
+@router.get("/completeness", response_model=CompletenessResponse)
+def get_completeness(db: Session = Depends(get_db)) -> CompletenessResponse:
     # Block snapshots completeness
     snap_total = db.scalar(select(func.count()).select_from(BlockSnapshots)) or 0
     snap_complete = (
@@ -94,17 +117,19 @@ def get_completeness(db: Session = Depends(get_db)) -> dict:
         ).all()
     )
     issues = [
-        {
-            "id": g.id,
-            "type": g.gap_type.lower().replace("_", "-"),
-            "severity": "critical" if g.gap_type == "SNAPSHOT" else "warning",
-            "description": g.reason,
-            "affectedBlocks": f"{g.block_start}-{g.block_end}"
-            if g.block_start != g.block_end
-            else str(g.block_start),
-            "detectedAt": g.created_at,
-            "requiresReview": True,
-        }
+        DataIssue(
+            id=g.id,
+            type=g.gap_type.lower().replace("_", "-"),
+            severity="critical" if g.gap_type == GapType.SNAPSHOT else "warning",
+            description=g.reason,
+            affected_blocks=(
+                f"{g.block_start}-{g.block_end}"
+                if g.block_start != g.block_end
+                else str(g.block_start)
+            ),
+            detected_at=g.created_at,
+            requires_review=True,
+        )
         for g in open_gaps
     ]
 
@@ -115,57 +140,48 @@ def get_completeness(db: Session = Depends(get_db)) -> dict:
         ).all()
     )
     activity = [
-        {
-            "timestamp": r.started_at,
-            "event": f"{r.run_type} run {'completed' if r.completed_at else 'started'}",
-            "details": (
+        ActivityEntry(
+            timestamp=r.started_at,
+            event=(f"{r.run_type} run {'completed' if r.completed_at else 'started'}"),
+            details=(
                 f"Run {r.run_id[:8]}... — "
                 f"{r.records_processed or 0} processed, "
                 f"{r.records_created or 0} created"
             ),
-            "status": "success"
-            if r.status == "SUCCESS"
-            else "warning"
-            if r.status == "PARTIAL"
-            else "error"
-            if r.status == "FAILED"
-            else "info",
-        }
+            status=_run_status(r.status),
+        )
         for r in recent_runs
     ]
 
-    def _pct(complete: int, total: int) -> float:
-        return round(complete / total * 100, 3) if total > 0 else 100.0
-
-    return {
-        "systemMetrics": {
-            "blockCoverage": {
-                "total": snap_total,
-                "complete": snap_complete,
-                "partial": snap_partial,
-                "missing": snap_missing,
-                "percentage": _pct(snap_complete, snap_total),
-            },
-            "yieldData": {
-                "total": yield_total,
-                "complete": yield_complete,
-                "partial": yield_partial,
-                "missing": yield_missing,
-                "percentage": _pct(yield_complete, yield_total),
-            },
-            "conversionEvents": {
-                "total": conv_total,
-                "allocated": conv_allocated,
-                "unallocated": conv_unallocated,
-                "percentage": _pct(conv_allocated, conv_total),
-            },
-            "ledgerEntries": {
-                "total": ledger_total,
-                "complete": ledger_complete,
-                "incomplete": ledger_incomplete,
-                "percentage": _pct(ledger_complete, ledger_total),
-            },
-        },
-        "issues": issues,
-        "recentActivity": activity,
-    }
+    return CompletenessResponse(
+        system_metrics=SystemMetrics(
+            block_coverage=CoverageMetrics(
+                total=snap_total,
+                complete=snap_complete,
+                partial=snap_partial,
+                missing=snap_missing,
+                percentage=_pct(snap_complete, snap_total),
+            ),
+            yield_data=CoverageMetrics(
+                total=yield_total,
+                complete=yield_complete,
+                partial=yield_partial,
+                missing=yield_missing,
+                percentage=_pct(yield_complete, yield_total),
+            ),
+            conversion_events=ConversionMetrics(
+                total=conv_total,
+                allocated=conv_allocated,
+                unallocated=conv_unallocated,
+                percentage=_pct(conv_allocated, conv_total),
+            ),
+            ledger_entries=LedgerMetrics(
+                total=ledger_total,
+                complete=ledger_complete,
+                incomplete=ledger_incomplete,
+                percentage=_pct(ledger_complete, ledger_total),
+            ),
+        ),
+        issues=issues,
+        recent_activity=activity,
+    )
