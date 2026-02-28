@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { StatusBadge, StatusType } from "../components/status-badge";
 import {
   Table,
@@ -17,8 +17,9 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import { Label } from "../components/ui/label";
-import { ChevronRight, Copy, ExternalLink, Send, AlertCircle } from "lucide-react";
+import { ChevronRight, Copy, ExternalLink, Send, AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { backendService, RakebackLedgerEntry, Partner } from "../../services/backend-service";
 
 interface PartnerLedgerEntry {
   id: string;
@@ -31,110 +32,70 @@ interface PartnerLedgerEntry {
   paymentTxHash?: string;
 }
 
-const mockLedger: PartnerLedgerEntry[] = [
-  {
-    id: "PL-CB-2026-02",
-    partner: "Creative Builds",
-    period: "February 2026",
-    grossTao: "8,432.5821",
-    rakebackRate: 15,
-    taoOwed: "1,264.8873",
-    status: "pending",
-  },
-  {
-    id: "PL-TL-2026-02",
-    partner: "Talisman",
-    period: "February 2026",
-    grossTao: "3,241.9023",
-    rakebackRate: 12,
-    taoOwed: "388.9283",
-    status: "pending",
-  },
-  {
-    id: "PL-CB-2026-01",
-    partner: "Creative Builds",
-    period: "January 2026",
-    grossTao: "12,567.3492",
-    rakebackRate: 15,
-    taoOwed: "1,885.1024",
-    status: "paid",
-    paymentTxHash:
-      "0x8f3d9e2a1b4c6f7e8d9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e",
-  },
-  {
-    id: "PL-TL-2026-01",
-    partner: "Talisman",
-    period: "January 2026",
-    grossTao: "4,893.2014",
-    rakebackRate: 12,
-    taoOwed: "587.1842",
-    status: "paid",
-    paymentTxHash:
-      "0x7e2c8d1a9b0f3e4d5c6a7b8e9f0d1c2b3a4e5f6d7c8a9b0e1f2d3c4a5b6e7f8d",
-  },
-  {
-    id: "PL-CB-2025-12",
-    partner: "Creative Builds",
-    period: "December 2025",
-    grossTao: "11,234.8923",
-    rakebackRate: 15,
-    taoOwed: "1,685.2338",
-    status: "paid",
-    paymentTxHash:
-      "0x6d1f9e0a8b7c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e",
-  },
-  {
-    id: "PL-TL-2025-12",
-    partner: "Talisman",
-    period: "December 2025",
-    grossTao: "5,102.4782",
-    rakebackRate: 12,
-    taoOwed: "612.2974",
-    status: "paid",
-    paymentTxHash:
-      "0x5c0e8d9a7b6f4e3d2c1a0b9f8e7d6c5a4b3e2d1f0c9a8b7e6d5f4c3a2b1e0d9f",
-  },
-];
-
-interface WalletBreakdown {
-  wallet: string;
-  grossTao: string;
-  rakebackTao: string;
-  stakeCount: number;
+function formatTao(n: number): string {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 }
 
-const mockCreativeBuildsBreakdown: WalletBreakdown[] = [
-  {
-    wallet: "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL",
-    grossTao: "8,432.5821",
-    rakebackTao: "1,264.8873",
-    stakeCount: 1,
-  },
-];
+function formatPeriod(start: string, end: string): string {
+  const d = new Date(start);
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
 
-const mockTalismanBreakdown: WalletBreakdown[] = [
-  {
-    wallet: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
-    grossTao: "1,823.4521",
-    rakebackTao: "218.8142",
-    stakeCount: 1,
-  },
-  {
-    wallet: "5DfhGyQdFobKM8NsWvEeAKk5EQQgYe9AydgJ7rMB6E1EqRzV",
-    grossTao: "1,418.4502",
-    rakebackTao: "170.1140",
-    stakeCount: 1,
-  },
-];
+function mapStatus(paymentStatus: string): StatusType {
+  switch (paymentStatus) {
+    case "PAID": return "paid";
+    case "DISPUTED": return "error";
+    default: return "pending";
+  }
+}
 
 export default function PartnerLedger() {
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
   const [showBreakdownDialog, setShowBreakdownDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
-  const [ledgerEntries, setLedgerEntries] = useState<PartnerLedgerEntry[]>(mockLedger);
+  const [ledgerEntries, setLedgerEntries] = useState<PartnerLedgerEntry[]>([]);
   const [paymentRecipient, setPaymentRecipient] = useState("");
   const [paymentMemo, setPaymentMemo] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [partnerCount, setPartnerCount] = useState(0);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const [ledgerData, partners] = await Promise.all([
+          backendService.getRakebackLedger(),
+          backendService.getPartners(),
+        ]);
+
+        const partnerMap = new Map<string, Partner>();
+        partners.forEach((p) => partnerMap.set(p.id, p));
+        setPartnerCount(partners.length);
+
+        const entries: PartnerLedgerEntry[] = ledgerData.map((entry: RakebackLedgerEntry) => ({
+          id: entry.id.slice(0, 12),
+          partner: partnerMap.get(entry.participantId)?.name ?? entry.participantId,
+          period: formatPeriod(entry.periodStart, entry.periodEnd),
+          grossTao: formatTao(entry.grossTaoConverted),
+          rakebackRate: Math.round(entry.rakebackPercentage * 10000) / 100,
+          taoOwed: formatTao(entry.taoOwed),
+          status: mapStatus(entry.paymentStatus),
+          paymentTxHash: entry.paymentTxHash ?? undefined,
+        }));
+
+        setLedgerEntries(entries);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load ledger data");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const handleViewBreakdown = (entryId: string) => {
     setSelectedEntry(entryId);
@@ -144,20 +105,8 @@ export default function PartnerLedger() {
   const handleInitiatePayment = (entryId: string) => {
     const entry = ledgerEntries.find((e) => e.id === entryId);
     if (!entry) return;
-    
     setSelectedEntry(entryId);
-    
-    // Pre-fill recipient based on partner
-    const breakdown = entry.partner === "Creative Builds" 
-      ? mockCreativeBuildsBreakdown 
-      : mockTalismanBreakdown;
-    
-    if (breakdown.length === 1) {
-      setPaymentRecipient(breakdown[0].wallet);
-    } else {
-      setPaymentRecipient(""); // Multi-wallet, user must choose
-    }
-    
+    setPaymentRecipient("");
     setPaymentMemo(`Rakeback payment - ${entry.partner} - ${entry.period}`);
     setShowPaymentDialog(true);
   };
@@ -174,17 +123,13 @@ export default function PartnerLedger() {
     setIsSending(true);
 
     try {
-      // Simulate transaction sending (2-3 seconds)
       await new Promise(resolve => setTimeout(resolve, 2500));
-      
-      // Generate mock transaction hash
-      const txHash = `0x${Array.from({ length: 64 }, () => 
+      const txHash = `0x${Array.from({ length: 64 }, () =>
         Math.floor(Math.random() * 16).toString(16)
       ).join('')}`;
 
-      // Update ledger entry
-      setLedgerEntries(prev => prev.map(e => 
-        e.id === selectedEntry 
+      setLedgerEntries(prev => prev.map(e =>
+        e.id === selectedEntry
           ? { ...e, status: "paid" as StatusType, paymentTxHash: txHash }
           : e
       ));
@@ -201,7 +146,7 @@ export default function PartnerLedger() {
       setShowPaymentDialog(false);
       setPaymentRecipient("");
       setPaymentMemo("");
-    } catch (error) {
+    } catch {
       toast.error("Failed to send payment. Please try again.");
     } finally {
       setIsSending(false);
@@ -209,10 +154,6 @@ export default function PartnerLedger() {
   };
 
   const selectedLedgerEntry = ledgerEntries.find((e) => e.id === selectedEntry);
-  const breakdownData =
-    selectedLedgerEntry?.partner === "Creative Builds"
-      ? mockCreativeBuildsBreakdown
-      : mockTalismanBreakdown;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -226,6 +167,25 @@ export default function PartnerLedger() {
   const totalPaid = ledgerEntries
     .filter((e) => e.status === "paid")
     .reduce((acc, e) => acc + parseFloat(e.taoOwed.replace(/,/g, "")), 0);
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+        <span className="ml-3 text-zinc-400">Loading ledger data...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto py-20 text-center">
+        <AlertCircle className="h-12 w-12 mx-auto mb-3 text-red-400" />
+        <div className="text-red-400 font-medium">Failed to load data</div>
+        <div className="text-sm text-zinc-500 mt-1">{error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -250,18 +210,18 @@ export default function PartnerLedger() {
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 mb-1">Pending Payments</div>
           <div className="text-2xl font-mono text-amber-400">
-            {totalPending.toFixed(4)} τ
+            {formatTao(totalPending)} τ
           </div>
         </div>
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 mb-1">Total Paid</div>
           <div className="text-2xl font-mono text-emerald-400">
-            {totalPaid.toFixed(4)} τ
+            {formatTao(totalPaid)} τ
           </div>
         </div>
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
           <div className="text-xs text-zinc-500 mb-1">Active Partners</div>
-          <div className="text-2xl font-mono text-zinc-100">2</div>
+          <div className="text-2xl font-mono text-zinc-100">{partnerCount}</div>
         </div>
       </div>
 
@@ -273,96 +233,97 @@ export default function PartnerLedger() {
             Monthly rakeback calculations and payment status
           </p>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-              <TableHead className="text-zinc-400">Entry ID</TableHead>
-              <TableHead className="text-zinc-400">Partner</TableHead>
-              <TableHead className="text-zinc-400">Period</TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                Gross TAO
-              </TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                Rakeback Rate
-              </TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                TAO Owed
-              </TableHead>
-              <TableHead className="text-zinc-400">Status</TableHead>
-              <TableHead className="text-zinc-400">Payment Tx</TableHead>
-              <TableHead className="text-zinc-400">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {ledgerEntries.map((entry) => (
-              <TableRow
-                key={entry.id}
-                className="border-zinc-800 hover:bg-zinc-800/50 transition-colors"
-              >
-                <TableCell className="font-mono text-sm text-zinc-300">
-                  {entry.id}
-                </TableCell>
-                <TableCell>
-                  <span className="inline-flex items-center px-2.5 py-1 rounded text-sm font-medium bg-zinc-800 text-zinc-100 border border-zinc-700">
-                    {entry.partner}
-                  </span>
-                </TableCell>
-                <TableCell className="text-zinc-400">{entry.period}</TableCell>
-                <TableCell className="text-right font-mono text-zinc-100">
-                  {entry.grossTao}
-                </TableCell>
-                <TableCell className="text-right text-zinc-400">
-                  {entry.rakebackRate}%
-                </TableCell>
-                <TableCell className="text-right font-mono text-emerald-400">
-                  {entry.taoOwed}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={entry.status} />
-                </TableCell>
-                <TableCell>
-                  {entry.paymentTxHash ? (
-                    <button
-                      onClick={() => copyToClipboard(entry.paymentTxHash!)}
-                      className="flex items-center gap-1.5 text-xs font-mono text-zinc-400 hover:text-zinc-200 transition-colors"
-                    >
-                      <span>
-                        {entry.paymentTxHash.slice(0, 6)}...
-                        {entry.paymentTxHash.slice(-4)}
-                      </span>
-                      <Copy className="h-3 w-3" />
-                    </button>
-                  ) : (
-                    <span className="text-xs text-zinc-600">—</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    {entry.status === "pending" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleInitiatePayment(entry.id)}
-                        className="bg-emerald-900/20 border-emerald-800 text-emerald-400 hover:bg-emerald-900/40 hover:text-emerald-300"
-                      >
-                        <Send className="h-3 w-3 mr-1.5" />
-                        Send
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleViewBreakdown(entry.id)}
-                      className="text-zinc-400 hover:text-zinc-200"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </TableCell>
+        {ledgerEntries.length === 0 ? (
+          <div className="p-8 text-center text-zinc-500">
+            <div className="text-zinc-400">No ledger entries yet</div>
+            <div className="text-sm mt-1">Entries will appear after the pipeline processes data</div>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
+                <TableHead className="text-zinc-400">Entry ID</TableHead>
+                <TableHead className="text-zinc-400">Partner</TableHead>
+                <TableHead className="text-zinc-400">Period</TableHead>
+                <TableHead className="text-zinc-400 text-right">Gross TAO</TableHead>
+                <TableHead className="text-zinc-400 text-right">Rakeback Rate</TableHead>
+                <TableHead className="text-zinc-400 text-right">TAO Owed</TableHead>
+                <TableHead className="text-zinc-400">Status</TableHead>
+                <TableHead className="text-zinc-400">Payment Tx</TableHead>
+                <TableHead className="text-zinc-400">Actions</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {ledgerEntries.map((entry) => (
+                <TableRow
+                  key={entry.id}
+                  className="border-zinc-800 hover:bg-zinc-800/50 transition-colors"
+                >
+                  <TableCell className="font-mono text-sm text-zinc-300">
+                    {entry.id}
+                  </TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center px-2.5 py-1 rounded text-sm font-medium bg-zinc-800 text-zinc-100 border border-zinc-700">
+                      {entry.partner}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-zinc-400">{entry.period}</TableCell>
+                  <TableCell className="text-right font-mono text-zinc-100">
+                    {entry.grossTao}
+                  </TableCell>
+                  <TableCell className="text-right text-zinc-400">
+                    {entry.rakebackRate}%
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-emerald-400">
+                    {entry.taoOwed}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={entry.status} />
+                  </TableCell>
+                  <TableCell>
+                    {entry.paymentTxHash ? (
+                      <button
+                        onClick={() => copyToClipboard(entry.paymentTxHash!)}
+                        className="flex items-center gap-1.5 text-xs font-mono text-zinc-400 hover:text-zinc-200 transition-colors"
+                      >
+                        <span>
+                          {entry.paymentTxHash.slice(0, 6)}...
+                          {entry.paymentTxHash.slice(-4)}
+                        </span>
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    ) : (
+                      <span className="text-xs text-zinc-600">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {entry.status === "pending" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleInitiatePayment(entry.id)}
+                          className="bg-emerald-900/20 border-emerald-800 text-emerald-400 hover:bg-emerald-900/40 hover:text-emerald-300"
+                        >
+                          <Send className="h-3 w-3 mr-1.5" />
+                          Send
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewBreakdown(entry.id)}
+                        className="text-zinc-400 hover:text-zinc-200"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </div>
 
       {/* Breakdown Dialog */}
@@ -373,7 +334,7 @@ export default function PartnerLedger() {
         <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100 max-w-4xl">
           <DialogHeader>
             <DialogTitle className="text-zinc-50">
-              {selectedLedgerEntry?.partner} Wallet Breakdown
+              {selectedLedgerEntry?.partner} — Wallet Breakdown
             </DialogTitle>
             <DialogDescription className="text-zinc-400">
               Per-wallet attribution for {selectedLedgerEntry?.period}
@@ -381,12 +342,9 @@ export default function PartnerLedger() {
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Summary */}
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
-                <div className="text-xs text-zinc-500 mb-1">
-                  Total Gross TAO
-                </div>
+                <div className="text-xs text-zinc-500 mb-1">Total Gross TAO</div>
                 <div className="text-lg font-mono text-zinc-100">
                   {selectedLedgerEntry?.grossTao}
                 </div>
@@ -398,72 +356,18 @@ export default function PartnerLedger() {
                 </div>
               </div>
               <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
-                <div className="text-xs text-zinc-500 mb-1">
-                  Total TAO Owed
-                </div>
+                <div className="text-xs text-zinc-500 mb-1">Total TAO Owed</div>
                 <div className="text-lg font-mono text-emerald-400">
                   {selectedLedgerEntry?.taoOwed}
                 </div>
               </div>
             </div>
 
-            {/* Wallet Table */}
-            <div className="border border-zinc-800 rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-                    <TableHead className="text-zinc-400">Wallet</TableHead>
-                    <TableHead className="text-zinc-400 text-right">
-                      Gross TAO
-                    </TableHead>
-                    <TableHead className="text-zinc-400 text-right">
-                      Rakeback TAO
-                    </TableHead>
-                    <TableHead className="text-zinc-400 text-right">
-                      Stake Count
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {breakdownData.map((wallet, idx) => (
-                    <TableRow
-                      key={idx}
-                      className="border-zinc-800 hover:bg-zinc-800/50"
-                    >
-                      <TableCell className="font-mono text-xs text-zinc-300">
-                        <div className="flex items-center gap-2">
-                          {wallet.wallet.slice(0, 8)}...{wallet.wallet.slice(-8)}
-                          <button
-                            onClick={() => copyToClipboard(wallet.wallet)}
-                            className="text-zinc-500 hover:text-zinc-300"
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-zinc-100">
-                        {wallet.grossTao}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-emerald-400">
-                        {wallet.rakebackTao}
-                      </TableCell>
-                      <TableCell className="text-right text-zinc-400">
-                        {wallet.stakeCount}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* Note */}
             <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-400">
               <div className="flex items-start gap-2">
                 <ExternalLink className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <div>
-                  {selectedLedgerEntry?.partner === "Creative Builds"
-                    ? "Creative Builds uses a single custody wallet. All TAO is aggregated to this address."
-                    : "Talisman attribution is per-wallet based on extrinsic memo matching."}
+                  Per-wallet breakdown coming soon. This will show individual wallet attributions once the per-wallet aggregation endpoint is available.
                 </div>
               </div>
             </div>
@@ -487,12 +391,9 @@ export default function PartnerLedger() {
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Summary */}
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
-                <div className="text-xs text-zinc-500 mb-1">
-                  Total Gross TAO
-                </div>
+                <div className="text-xs text-zinc-500 mb-1">Total Gross TAO</div>
                 <div className="text-lg font-mono text-zinc-100">
                   {selectedLedgerEntry?.grossTao}
                 </div>
@@ -504,65 +405,13 @@ export default function PartnerLedger() {
                 </div>
               </div>
               <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
-                <div className="text-xs text-zinc-500 mb-1">
-                  Total TAO Owed
-                </div>
+                <div className="text-xs text-zinc-500 mb-1">Total TAO Owed</div>
                 <div className="text-lg font-mono text-emerald-400">
                   {selectedLedgerEntry?.taoOwed}
                 </div>
               </div>
             </div>
 
-            {/* Wallet Table */}
-            <div className="border border-zinc-800 rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-                    <TableHead className="text-zinc-400">Wallet</TableHead>
-                    <TableHead className="text-zinc-400 text-right">
-                      Gross TAO
-                    </TableHead>
-                    <TableHead className="text-zinc-400 text-right">
-                      Rakeback TAO
-                    </TableHead>
-                    <TableHead className="text-zinc-400 text-right">
-                      Stake Count
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {breakdownData.map((wallet, idx) => (
-                    <TableRow
-                      key={idx}
-                      className="border-zinc-800 hover:bg-zinc-800/50"
-                    >
-                      <TableCell className="font-mono text-xs text-zinc-300">
-                        <div className="flex items-center gap-2">
-                          {wallet.wallet.slice(0, 8)}...{wallet.wallet.slice(-8)}
-                          <button
-                            onClick={() => copyToClipboard(wallet.wallet)}
-                            className="text-zinc-500 hover:text-zinc-300"
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-zinc-100">
-                        {wallet.grossTao}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-emerald-400">
-                        {wallet.rakebackTao}
-                      </TableCell>
-                      <TableCell className="text-right text-zinc-400">
-                        {wallet.stakeCount}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* Payment Form */}
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="recipient" className="text-zinc-300">Recipient Wallet</Label>
@@ -586,7 +435,6 @@ export default function PartnerLedger() {
               </div>
             </div>
 
-            {/* Send Button */}
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
@@ -606,7 +454,7 @@ export default function PartnerLedger() {
               >
                 {isSending ? (
                   <div className="flex items-center gap-1.5">
-                    <AlertCircle className="h-3 w-3 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                     Sending...
                   </div>
                 ) : (
