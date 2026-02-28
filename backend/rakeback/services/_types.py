@@ -110,6 +110,31 @@ class AttributionStatsDict(TypedDict, total=False):
     unique_delegators: int
 
 
+class DetailedAttributionStatsDict(TypedDict):
+    block_range: tuple[int, int]
+    total_blocks: int
+    blocks_with_attributions: int
+    total_attributions: int
+    total_dtao_attributed: Decimal
+    unique_delegators: int
+    completeness: dict[str, int]
+    by_delegation_type: dict[str, str]
+
+
+class ValidationIssue(TypedDict):
+    block: int
+    issue: str
+    expected: str | int
+    actual: str | int
+
+
+class ValidationResultDict(TypedDict):
+    blocks_checked: int
+    blocks_valid: int
+    blocks_invalid: int
+    issues: list[ValidationIssue]
+
+
 class BlockDetailDict(TypedDict):
     block_number: int
     timestamp: str | None

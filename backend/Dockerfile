@@ -23,4 +23,4 @@ ENV PYTHONPATH=/app
 
 EXPOSE 8000
 
-ENTRYPOINT ["sh", "-c", "python migrations/migrate.py && if [ \"$SEED_SAMPLE_DATA\" = 'true' ]; then python scripts/seed_sample_data.py; fi && rakeback-api"]
+ENTRYPOINT ["sh", "-c", "python migrations/migrate.py && if [ \"$SEED_SAMPLE_DATA\" = 'true' ] && [ \"$RAKEBACK_ENVIRONMENT\" != 'production' ]; then python scripts/seed_sample_data.py; fi && rakeback-api"]

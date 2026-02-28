@@ -17,7 +17,14 @@ from db.models import (
     ProcessingRuns,
 )
 from rakeback.services._helpers import dump_json, new_id, now_iso
-from rakeback.services._types import AttributionDict, AttributionStatsDict, BlockDetailDict
+from rakeback.services._types import (
+    AttributionDict,
+    AttributionStatsDict,
+    BlockDetailDict,
+    DetailedAttributionStatsDict,
+    ValidationIssue,
+    ValidationResultDict,
+)
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -543,21 +550,21 @@ class AttributionEngine:
 
     def get_attribution_stats(
         self, start_block: int, end_block: int, validator_hotkey: str
-    ) -> dict[str, object]:
+    ) -> DetailedAttributionStatsDict:
         rows: list[BlockAttributions] = self._get_attributions_range(
             start_block, end_block, validator_hotkey
         )
         if not rows:
-            return {
-                "block_range": (start_block, end_block),
-                "total_blocks": end_block - start_block + 1,
-                "blocks_with_attributions": 0,
-                "total_attributions": 0,
-                "total_dtao_attributed": Decimal(0),
-                "unique_delegators": 0,
-                "completeness": {},
-                "by_delegation_type": {},
-            }
+            return DetailedAttributionStatsDict(
+                block_range=(start_block, end_block),
+                total_blocks=end_block - start_block + 1,
+                blocks_with_attributions=0,
+                total_attributions=0,
+                total_dtao_attributed=Decimal(0),
+                unique_delegators=0,
+                completeness={},
+                by_delegation_type={},
+            )
         blocks_with_attr: set[int] = set()
         delegators: set[str] = set()
         total_dtao: Decimal = Decimal(0)
@@ -570,24 +577,24 @@ class AttributionEngine:
             total_dtao += dtao
             by_dtype[a.delegation_type] = by_dtype.get(a.delegation_type, Decimal(0)) + dtao
             by_completeness[a.completeness_flag] = by_completeness.get(a.completeness_flag, 0) + 1
-        return {
-            "block_range": (start_block, end_block),
-            "total_blocks": end_block - start_block + 1,
-            "blocks_with_attributions": len(blocks_with_attr),
-            "total_attributions": len(rows),
-            "total_dtao_attributed": total_dtao,
-            "unique_delegators": len(delegators),
-            "completeness": by_completeness,
-            "by_delegation_type": {k: str(v) for k, v in by_dtype.items()},
-        }
+        return DetailedAttributionStatsDict(
+            block_range=(start_block, end_block),
+            total_blocks=end_block - start_block + 1,
+            blocks_with_attributions=len(blocks_with_attr),
+            total_attributions=len(rows),
+            total_dtao_attributed=total_dtao,
+            unique_delegators=len(delegators),
+            completeness=by_completeness,
+            by_delegation_type={k: str(v) for k, v in by_dtype.items()},
+        )
 
     def validate_attributions(
         self, start_block: int, end_block: int, validator_hotkey: str
-    ) -> dict[str, object]:
+    ) -> ValidationResultDict:
         blocks_checked: int = 0
         blocks_valid: int = 0
         blocks_invalid: int = 0
-        issues: list[dict[str, object]] = []
+        issues: list[ValidationIssue] = []
         for bn in range(start_block, end_block + 1):
             snapshot: BlockSnapshots | None = self._get_snapshot(bn, validator_hotkey)
             block_yield: BlockYields | None = self._get_yield(bn, validator_hotkey)
@@ -601,31 +608,31 @@ class AttributionEngine:
             if len(attribs) != len(snapshot.delegations):
                 valid = False
                 issues.append(
-                    {
-                        "block": bn,
-                        "issue": "count_mismatch",
-                        "expected": len(snapshot.delegations),
-                        "actual": len(attribs),
-                    }
+                    ValidationIssue(
+                        block=bn,
+                        issue="count_mismatch",
+                        expected=len(snapshot.delegations),
+                        actual=len(attribs),
+                    )
                 )
             total: Decimal = sum((Decimal(str(a.attributed_dtao)) for a in attribs), Decimal(0))
             if total != Decimal(str(block_yield.total_dtao_earned)):
                 valid = False
                 issues.append(
-                    {
-                        "block": bn,
-                        "issue": "total_mismatch",
-                        "expected": str(block_yield.total_dtao_earned),
-                        "actual": str(total),
-                    }
+                    ValidationIssue(
+                        block=bn,
+                        issue="total_mismatch",
+                        expected=str(block_yield.total_dtao_earned),
+                        actual=str(total),
+                    )
                 )
             if valid:
                 blocks_valid += 1
             else:
                 blocks_invalid += 1
-        return {
-            "blocks_checked": blocks_checked,
-            "blocks_valid": blocks_valid,
-            "blocks_invalid": blocks_invalid,
-            "issues": issues,
-        }
+        return ValidationResultDict(
+            blocks_checked=blocks_checked,
+            blocks_valid=blocks_valid,
+            blocks_invalid=blocks_invalid,
+            issues=issues,
+        )
