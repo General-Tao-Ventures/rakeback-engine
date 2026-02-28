@@ -29,7 +29,7 @@ from rakeback.services.errors import (
     AttributionIncompleteDataError,
     AttributionValidationError,
 )
-from rakeback.services.schemas.results import AttributionResult
+from rakeback.services.schemas.results import AttributionResult as AttributionResult
 
 # Backward-compatible re-exports
 IncompleteDataError = AttributionIncompleteDataError

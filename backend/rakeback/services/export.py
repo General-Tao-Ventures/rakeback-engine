@@ -28,8 +28,8 @@ from rakeback.services._types import (
     SummaryReportDict,
     SummaryTotals,
 )
-from rakeback.services.errors import ExportError  # noqa: F401 — re-exported
-from rakeback.services.schemas.results import ExportResult
+from rakeback.services.errors import ExportError as ExportError
+from rakeback.services.schemas.results import ExportResult as ExportResult
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 

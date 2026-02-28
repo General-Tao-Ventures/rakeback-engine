@@ -36,7 +36,7 @@ from rakeback.services.errors import (
     CSVImportError,  # noqa: F401 — re-exported for backward compat
     IngestionError,
 )
-from rakeback.services.schemas.results import IngestionResult
+from rakeback.services.schemas.results import IngestionResult as IngestionResult
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 

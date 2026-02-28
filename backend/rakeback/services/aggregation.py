@@ -37,7 +37,7 @@ from rakeback.services.errors import (
     AggregationIncompleteDataError,
 )
 from rakeback.services.rules_engine import RulesEngine
-from rakeback.services.schemas.results import AggregationResult
+from rakeback.services.schemas.results import AggregationResult as AggregationResult
 
 # Backward-compatible re-export
 IncompleteDataError = AggregationIncompleteDataError
