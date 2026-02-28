@@ -7,10 +7,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.dependencies import get_api_key
 from app.routes import attributions, completeness, conversions, exports, partners, rakeback
 from app.routes.health import get_db_info
 from config import Settings, get_settings
@@ -59,7 +60,7 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/health/db")
+    @app.get("/health/db", dependencies=[Depends(get_api_key)])
     def health_db() -> DbInfoDict:
         return get_db_info()
 
