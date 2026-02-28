@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -15,6 +16,7 @@ from app.dependencies import get_api_key
 from app.routes import attributions, completeness, conversions, exports, partners, rakeback
 from app.routes.health import get_db_info
 from config import Settings, get_settings
+from migrations.migrate import migrate
 from rakeback.services._types import DbInfoDict
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -24,9 +26,6 @@ logger: logging.Logger = logging.getLogger(__name__)
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = get_settings()
     logger.info("DB: %s", settings.database.db_info_for_logging())
-
-    # Run pending migrations
-    from migrations.migrate import migrate
 
     migrate()
     yield
@@ -81,8 +80,6 @@ def start() -> None:
     """Entry point for rakeback-api."""
     backend_root: Path = Path(__file__).resolve().parent.parent
     os.chdir(backend_root)
-
-    from dotenv import load_dotenv
 
     for candidate in (backend_root / ".env", backend_root.parent / ".env"):
         if candidate.exists():
