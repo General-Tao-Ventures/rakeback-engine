@@ -2,7 +2,6 @@
 
 import csv
 from collections.abc import Sequence
-from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -30,28 +29,16 @@ from db.models import (
 )
 from rakeback.services._helpers import dump_json, new_id, now_iso
 from rakeback.services._types import AllocationDict, ConversionDetailDict, ConversionDict
-from rakeback.services.chain_client import BlockNotFoundError, ChainClient, ChainClientError
+from rakeback.services.chain_client import ChainClient
+from rakeback.services.errors import (
+    BlockNotFoundError,
+    ChainClientError,
+    CSVImportError,  # noqa: F401 — re-exported for backward compat
+    IngestionError,
+)
+from rakeback.services.schemas.results import IngestionResult
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
-
-
-class IngestionError(Exception):
-    pass
-
-
-class CSVImportError(IngestionError):
-    pass
-
-
-@dataclass
-class IngestionResult:
-    run_id: str
-    blocks_processed: int
-    blocks_created: int
-    blocks_skipped: int
-    gaps_detected: list[tuple[int, int]]
-    completeness_summary: dict[str, int]
-    errors: list[str]
 
 
 class IngestionService:

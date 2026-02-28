@@ -1,7 +1,6 @@
 """Attribution engine for block-by-block yield distribution."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
 
 import structlog
@@ -25,32 +24,18 @@ from rakeback.services._types import (
     ValidationIssue,
     ValidationResultDict,
 )
+from rakeback.services.errors import (
+    AttributionError,  # noqa: F401 — re-exported for backward compat
+    AttributionIncompleteDataError,
+    AttributionValidationError,
+)
+from rakeback.services.schemas.results import AttributionResult
+
+# Backward-compatible re-exports
+IncompleteDataError = AttributionIncompleteDataError
+ValidationError = AttributionValidationError
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
-
-
-class AttributionError(Exception):
-    pass
-
-
-class IncompleteDataError(AttributionError):
-    pass
-
-
-class ValidationError(AttributionError):
-    pass
-
-
-@dataclass
-class AttributionResult:
-    run_id: str
-    blocks_processed: int
-    attributions_created: int
-    blocks_skipped: int
-    blocks_incomplete: int
-    total_dtao_attributed: Decimal
-    completeness_summary: dict[str, int]
-    errors: list[str]
 
 
 PROPORTION_PRECISION: Decimal = Decimal("1E-15")

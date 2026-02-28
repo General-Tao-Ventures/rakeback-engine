@@ -2,7 +2,6 @@
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TypeVar
@@ -10,73 +9,26 @@ from typing import TypeVar
 import structlog
 
 from config import Settings, get_settings
+from rakeback.services.errors import (
+    BlockNotFoundError,
+    ChainClientError,  # noqa: F401 — re-exported for backward compat
+    ChainConnectionError,
+    RPCError,
+)
+from rakeback.services.schemas.chain import (
+    BlockData,
+    BlockYieldData,
+    ConversionData,
+    DelegationData,
+    ValidatorState,
+)
+
+# Backward-compatible re-export (shadows builtin intentionally)
+ConnectionError = ChainConnectionError  # noqa: A001
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
-
-
-class ChainClientError(Exception):
-    """Base exception for chain client errors."""
-
-
-class RPCError(ChainClientError):
-    """RPC call failed."""
-
-
-class BlockNotFoundError(ChainClientError):
-    """Requested block not found."""
-
-
-class ConnectionError(ChainClientError):
-    """Cannot connect to RPC endpoint."""
-
-
-@dataclass
-class BlockData:
-    block_number: int
-    block_hash: str
-    parent_hash: str
-    timestamp: datetime
-    extrinsics: list[dict[str, object]]
-
-
-@dataclass
-class DelegationData:
-    delegator_address: str
-    delegation_type: str
-    subnet_id: int | None
-    balance_dtao: Decimal
-    balance_tao: Decimal | None
-
-
-@dataclass
-class ValidatorState:
-    block_number: int
-    block_hash: str
-    timestamp: datetime
-    validator_hotkey: str
-    total_stake: Decimal
-    delegations: list[DelegationData]
-
-
-@dataclass
-class BlockYieldData:
-    block_number: int
-    validator_hotkey: str
-    total_dtao_earned: Decimal
-    yield_by_subnet: dict[int, Decimal]
-
-
-@dataclass
-class ConversionData:
-    block_number: int
-    transaction_hash: str
-    validator_hotkey: str
-    dtao_amount: Decimal
-    tao_amount: Decimal
-    conversion_rate: Decimal
-    subnet_id: int | None
 
 
 class ChainClient:

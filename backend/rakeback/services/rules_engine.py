@@ -11,6 +11,7 @@ from db.enums import DelegationType, RuleType
 from db.models import RakebackParticipants
 from rakeback.services._helpers import JsonDict, load_json
 from rakeback.services._types import ParticipantSnapshot, RulesSnapshot
+from rakeback.services.errors import InvalidRuleError, RulesEngineError  # noqa: F401 — re-exported
 
 
 def _str_list(data: dict[str, object], key: str) -> list[str]:
@@ -100,14 +101,6 @@ class Rule:
                 return []
             case RuleType.ALL:
                 return []
-
-
-class RulesEngineError(Exception):
-    pass
-
-
-class InvalidRuleError(RulesEngineError):
-    pass
 
 
 class RulesEngine:

@@ -3,7 +3,6 @@
 import csv
 import io
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -29,23 +28,10 @@ from rakeback.services._types import (
     SummaryReportDict,
     SummaryTotals,
 )
+from rakeback.services.errors import ExportError  # noqa: F401 — re-exported
+from rakeback.services.schemas.results import ExportResult
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
-
-
-class ExportError(Exception):
-    pass
-
-
-@dataclass
-class ExportResult:
-    run_id: str
-    output_path: Path
-    row_count: int
-    complete_entries: int
-    incomplete_entries: int
-    total_tao: Decimal
-    warnings: list[str]
 
 
 class ExportService:

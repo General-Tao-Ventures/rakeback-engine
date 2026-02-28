@@ -1,6 +1,5 @@
 """Aggregation service for daily/monthly rakeback calculations."""
 
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -33,29 +32,17 @@ from rakeback.services._types import (
     LedgerSummaryDict,
     empty_completeness_summary,
 )
+from rakeback.services.errors import (
+    AggregationError,  # noqa: F401 — re-exported for backward compat
+    AggregationIncompleteDataError,
+)
 from rakeback.services.rules_engine import RulesEngine
+from rakeback.services.schemas.results import AggregationResult
+
+# Backward-compatible re-export
+IncompleteDataError = AggregationIncompleteDataError
 
 logger = structlog.get_logger(__name__)
-
-
-class AggregationError(Exception):
-    pass
-
-
-class IncompleteDataError(AggregationError):
-    pass
-
-
-@dataclass
-class AggregationResult:
-    run_id: str
-    period_type: PeriodType
-    period_start: date
-    period_end: date
-    entries_created: int
-    total_tao_owed: Decimal
-    completeness_summary: CompletenessSummary
-    warnings: list[str]
 
 
 class AggregationService:
