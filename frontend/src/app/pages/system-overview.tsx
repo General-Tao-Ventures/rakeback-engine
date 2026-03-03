@@ -8,8 +8,6 @@ import {
   TableRow,
 } from "../components/ui/table";
 import {
-  TrendingUp,
-  TrendingDown,
   Wallet,
   Users,
   DollarSign,
@@ -22,178 +20,25 @@ import {
   XCircle,
   AlertTriangle,
   Radio,
+  Loader2,
 } from "lucide-react";
 import { useBlockchain } from "../../hooks/use-blockchain";
 import { useState, useEffect } from "react";
 import { API_CONFIG, getTaoStatsApiKey, getRpcNodeUrl, getRpcNodeApiKey } from "../../config/api-config";
+import { backendService, Partner, RakebackSummary } from "../../services/backend-service";
 
-// Summary metrics
-const summaryMetrics = [
-  {
-    label: "Total Rakeback (MTD)",
-    value: "1,847.32 TAO",
-    change: "+12.4%",
-    trend: "up" as const,
-    subtext: "vs last month",
-  },
-  {
-    label: "Total Rakeback (YTD)",
-    value: "18,392.58 TAO",
-    change: "+24.8%",
-    trend: "up" as const,
-    subtext: "vs last year",
-  },
-  {
-    label: "Active Partners",
-    value: "2",
-    change: "0",
-    trend: "neutral" as const,
-    subtext: "no change",
-  },
-  {
-    label: "Tracked Wallets",
-    value: "1,247",
-    change: "+89",
-    trend: "up" as const,
-    subtext: "this month",
-  },
-];
+interface SummaryMetric {
+  label: string;
+  value: string;
+  subtext: string;
+}
 
-// Partner performance
 interface PartnerPerformance {
   name: string;
   type: string;
-  rakebackMTD: string;
-  rakebackYTD: string;
-  walletCount: number;
-  avgYieldPerWallet: string;
+  rakebackRate: string;
   status: StatusType;
 }
-
-const partnerPerformance: PartnerPerformance[] = [
-  {
-    name: "Creative Builds",
-    type: "Named",
-    rakebackMTD: "1,124.85 TAO",
-    rakebackYTD: "11,523.44 TAO",
-    walletCount: 1,
-    avgYieldPerWallet: "1,124.85 TAO",
-    status: "active",
-  },
-  {
-    name: "Talisman",
-    type: "Tag-based",
-    rakebackMTD: "722.47 TAO",
-    rakebackYTD: "6,869.14 TAO",
-    walletCount: 1246,
-    avgYieldPerWallet: "0.58 TAO",
-    status: "active",
-  },
-];
-
-// Recent activity
-interface RecentActivity {
-  timestamp: string;
-  type: string;
-  partner: string;
-  amount: string;
-  blockRange: string;
-  status: StatusType;
-}
-
-const recentActivity: RecentActivity[] = [
-  {
-    timestamp: "2026-02-14 08:15:00",
-    type: "Daily Settlement",
-    partner: "Creative Builds",
-    amount: "47.23 TAO",
-    blockRange: "4,520,100 - 4,527,200",
-    status: "complete",
-  },
-  {
-    timestamp: "2026-02-14 08:15:00",
-    type: "Daily Settlement",
-    partner: "Talisman",
-    amount: "28.94 TAO",
-    blockRange: "4,520,100 - 4,527,200",
-    status: "complete",
-  },
-  {
-    timestamp: "2026-02-13 08:10:00",
-    type: "Daily Settlement",
-    partner: "Creative Builds",
-    amount: "51.18 TAO",
-    blockRange: "4,512,900 - 4,520,099",
-    status: "complete",
-  },
-  {
-    timestamp: "2026-02-13 08:10:00",
-    type: "Daily Settlement",
-    partner: "Talisman",
-    amount: "31.22 TAO",
-    blockRange: "4,512,900 - 4,520,099",
-    status: "complete",
-  },
-  {
-    timestamp: "2026-02-12 08:05:00",
-    type: "Daily Settlement",
-    partner: "Creative Builds",
-    amount: "49.67 TAO",
-    blockRange: "4,505,700 - 4,512,899",
-    status: "complete",
-  },
-];
-
-// System health
-interface SystemHealth {
-  component: string;
-  status: StatusType;
-  lastUpdate: string;
-  metric: string;
-}
-
-const systemHealth: SystemHealth[] = [
-  {
-    component: "Block Ingestion",
-    status: "active",
-    lastUpdate: "2026-02-14 09:47:12",
-    metric: "Block 4,527,342 (12s ago)",
-  },
-  {
-    component: "Attribution Engine",
-    status: "active",
-    lastUpdate: "2026-02-14 09:47:08",
-    metric: "Processing block 4,527,341",
-  },
-  {
-    component: "Conversion Tracker",
-    status: "active",
-    lastUpdate: "2026-02-14 09:47:05",
-    metric: "Last conversion: block 4,527,289",
-  },
-  {
-    component: "Partner Ledger",
-    status: "active",
-    lastUpdate: "2026-02-14 08:15:00",
-    metric: "Daily settlement complete",
-  },
-];
-
-// Financial summary
-const financialSummary = {
-  currentMonth: {
-    totalYield: "12,315.47 TAO",
-    totalRakeback: "1,847.32 TAO",
-    rakebackRate: "15.0%",
-    netYield: "10,468.15 TAO",
-  },
-  yearToDate: {
-    totalYield: "122,617.20 TAO",
-    totalRakeback: "18,392.58 TAO",
-    rakebackRate: "15.0%",
-    netYield: "104,224.62 TAO",
-  },
-};
 
 export default function SystemOverview() {
   const blockchain = useBlockchain();
@@ -201,6 +46,78 @@ export default function SystemOverview() {
   const [backendHealth, setBackendHealth] = useState<"healthy" | "degraded" | "down" | "unknown">("unknown");
   const [indexerHealth, setIndexerHealth] = useState<"healthy" | "degraded" | "down" | "unknown">("unknown");
   const [rpcNodeHealth, setRpcNodeHealth] = useState<"healthy" | "degraded" | "down" | "unknown">("unknown");
+
+  const [summaryMetrics, setSummaryMetrics] = useState<SummaryMetric[]>([]);
+  const [partnerPerformance, setPartnerPerformance] = useState<PartnerPerformance[]>([]);
+  const [financialSummary, setFinancialSummary] = useState<{ totalOwed: string; totalPaid: string; totalOutstanding: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch real data from backend
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [partners, summary] = await Promise.all([
+          backendService.getPartners().catch(() => [] as Partner[]),
+          backendService.getRakebackSummary().catch(() => null),
+        ]);
+
+        const activePartners = partners.length;
+        const totalOwed = summary ? parseFloat(summary.totalTaoOwed) : 0;
+        const totalPaid = summary ? parseFloat(summary.totalTaoPaid) : 0;
+        const totalOutstanding = summary ? parseFloat(summary.totalTaoOutstanding) : 0;
+
+        setSummaryMetrics([
+          {
+            label: "Total TAO Owed",
+            value: totalOwed > 0 ? `${totalOwed.toLocaleString()} TAO` : "0 TAO",
+            subtext: "all time",
+          },
+          {
+            label: "Total TAO Paid",
+            value: totalPaid > 0 ? `${totalPaid.toLocaleString()} TAO` : "0 TAO",
+            subtext: "all time",
+          },
+          {
+            label: "Active Partners",
+            value: String(activePartners),
+            subtext: activePartners === 0 ? "none configured" : "configured",
+          },
+          {
+            label: "Outstanding",
+            value: totalOutstanding > 0 ? `${totalOutstanding.toLocaleString()} TAO` : "0 TAO",
+            subtext: "unpaid balance",
+          },
+        ]);
+
+        setPartnerPerformance(
+          partners.map((p) => ({
+            name: p.name,
+            type: p.type,
+            rakebackRate: `${p.rakebackRate.toFixed(1)}%`,
+            status: "active" as StatusType,
+          }))
+        );
+
+        setFinancialSummary({
+          totalOwed: totalOwed > 0 ? `${totalOwed.toLocaleString(undefined, { minimumFractionDigits: 2 })} TAO` : "0 TAO",
+          totalPaid: totalPaid > 0 ? `${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })} TAO` : "0 TAO",
+          totalOutstanding: totalOutstanding > 0 ? `${totalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2 })} TAO` : "0 TAO",
+        });
+      } catch {
+        // Graceful fallback — show empty state
+        setSummaryMetrics([
+          { label: "Total TAO Owed", value: "—", subtext: "backend unavailable" },
+          { label: "Total TAO Paid", value: "—", subtext: "backend unavailable" },
+          { label: "Active Partners", value: "—", subtext: "backend unavailable" },
+          { label: "Outstanding", value: "—", subtext: "backend unavailable" },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   // Check API health on mount
   useEffect(() => {
@@ -219,7 +136,7 @@ export default function SystemOverview() {
         setTaoStatsHealth("down");
       }
 
-      // Check Backend (will fail for now since it's not set up)
+      // Check Backend
       try {
         const backendResponse = await fetch(`${API_CONFIG.backend.baseUrl}/health`, {
           headers: { "Content-Type": "application/json" },
@@ -232,7 +149,7 @@ export default function SystemOverview() {
       // Check Indexer (placeholder)
       setIndexerHealth("unknown");
 
-      // Check RPC node (HTTP JSON-RPC; dRPC uses Drpc-Key header)
+      // Check RPC node
       try {
         const rpcUrl = getRpcNodeUrl();
         const rpcKey = getRpcNodeApiKey();
@@ -298,37 +215,26 @@ export default function SystemOverview() {
 
       {/* Summary Metrics */}
       <div className="grid grid-cols-4 gap-4">
-        {summaryMetrics.map((metric, idx) => (
-          <div
-            key={idx}
-            className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4"
-          >
-            <div className="text-xs text-zinc-500 mb-1.5 uppercase tracking-wider">
-              {metric.label}
+        {loading ? (
+          Array.from({ length: 4 }).map((_, idx) => (
+            <div key={idx} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 animate-pulse">
+              <div className="h-3 bg-zinc-800 rounded w-24 mb-3" />
+              <div className="h-7 bg-zinc-800 rounded w-32" />
             </div>
-            <div className="text-2xl font-semibold text-zinc-50 mb-2">
-              {metric.value}
+          ))
+        ) : (
+          summaryMetrics.map((metric, idx) => (
+            <div key={idx} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
+              <div className="text-xs text-zinc-500 mb-1.5 uppercase tracking-wider">
+                {metric.label}
+              </div>
+              <div className="text-2xl font-semibold text-zinc-50 mb-2">
+                {metric.value}
+              </div>
+              <div className="text-xs text-zinc-500">{metric.subtext}</div>
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              {metric.trend === "up" && (
-                <div className="flex items-center gap-1 text-emerald-400">
-                  <TrendingUp className="h-3 w-3" />
-                  <span>{metric.change}</span>
-                </div>
-              )}
-              {metric.trend === "down" && (
-                <div className="flex items-center gap-1 text-red-400">
-                  <TrendingDown className="h-3 w-3" />
-                  <span>{metric.change}</span>
-                </div>
-              )}
-              {metric.trend === "neutral" && (
-                <div className="text-zinc-500">{metric.change}</div>
-              )}
-              <span className="text-zinc-500">{metric.subtext}</span>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* API Health Status */}
@@ -343,9 +249,7 @@ export default function SystemOverview() {
                   <Database className="h-4 w-4 text-emerald-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">
-                    Archive Node
-                  </div>
+                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">Archive Node</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <healthStatus.icon className={`h-3.5 w-3.5 ${healthStatus.iconColor}`} />
                     <span className={`text-xs font-medium ${healthStatus.iconColor}`}>
@@ -368,9 +272,7 @@ export default function SystemOverview() {
                   <Radio className="h-4 w-4 text-cyan-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">
-                    RPC Node
-                  </div>
+                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">RPC Node</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <healthStatus.icon className={`h-3.5 w-3.5 ${healthStatus.iconColor}`} />
                     <span className={`text-xs font-medium ${healthStatus.iconColor}`}>
@@ -393,9 +295,7 @@ export default function SystemOverview() {
                   <Globe className="h-4 w-4 text-blue-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">
-                    TaoStats API
-                  </div>
+                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">TaoStats API</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <healthStatus.icon className={`h-3.5 w-3.5 ${healthStatus.iconColor}`} />
                     <span className={`text-xs font-medium ${healthStatus.iconColor}`}>
@@ -418,9 +318,7 @@ export default function SystemOverview() {
                   <Server className="h-4 w-4 text-amber-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">
-                    Backend API
-                  </div>
+                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">Backend API</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <healthStatus.icon className={`h-3.5 w-3.5 ${healthStatus.iconColor}`} />
                     <span className={`text-xs font-medium ${healthStatus.iconColor}`}>
@@ -443,9 +341,7 @@ export default function SystemOverview() {
                   <Activity className="h-4 w-4 text-purple-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">
-                    Indexer API
-                  </div>
+                  <div className="text-[11px] text-zinc-500 uppercase tracking-wider">Indexer API</div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <healthStatus.icon className={`h-3.5 w-3.5 ${healthStatus.iconColor}`} />
                     <span className={`text-xs font-medium ${healthStatus.iconColor}`}>
@@ -461,80 +357,45 @@ export default function SystemOverview() {
 
       {/* Financial Summary */}
       <div className="grid grid-cols-2 gap-4">
-        {/* Current Month */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg overflow-hidden">
           <div className="p-4 border-b border-zinc-800">
             <div className="flex items-center gap-2">
               <DollarSign className="h-5 w-5 text-zinc-400" />
-              <h3 className="font-medium text-zinc-50">
-                February 2026 (Month-to-Date)
-              </h3>
+              <h3 className="font-medium text-zinc-50">Rakeback Summary</h3>
             </div>
           </div>
           <div className="p-4 space-y-3">
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm text-zinc-400">Total Yield</span>
-              <span className="font-mono text-zinc-100">
-                {financialSummary.currentMonth.totalYield}
-              </span>
-            </div>
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm text-zinc-400">Total Rakeback</span>
-              <span className="font-mono text-amber-400 font-medium">
-                {financialSummary.currentMonth.totalRakeback}
-              </span>
-            </div>
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm text-zinc-400">Effective Rate</span>
-              <span className="font-mono text-zinc-300">
-                {financialSummary.currentMonth.rakebackRate}
-              </span>
-            </div>
-            <div className="pt-3 border-t border-zinc-800 flex justify-between items-baseline">
-              <span className="text-sm text-zinc-400 font-medium">
-                Net Yield (After Rakeback)
-              </span>
-              <span className="font-mono text-emerald-400 font-semibold">
-                {financialSummary.currentMonth.netYield}
-              </span>
-            </div>
+            {financialSummary ? (
+              <>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-sm text-zinc-400">Total TAO Owed</span>
+                  <span className="font-mono text-zinc-100">{financialSummary.totalOwed}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-sm text-zinc-400">Total TAO Paid</span>
+                  <span className="font-mono text-emerald-400 font-medium">{financialSummary.totalPaid}</span>
+                </div>
+                <div className="pt-3 border-t border-zinc-800 flex justify-between items-baseline">
+                  <span className="text-sm text-zinc-400 font-medium">Outstanding Balance</span>
+                  <span className="font-mono text-amber-400 font-semibold">{financialSummary.totalOutstanding}</span>
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-zinc-500 text-center py-4">No financial data yet</div>
+            )}
           </div>
         </div>
 
-        {/* Year to Date */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg overflow-hidden">
           <div className="p-4 border-b border-zinc-800">
             <div className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-zinc-400" />
-              <h3 className="font-medium text-zinc-50">2026 (Year-to-Date)</h3>
+              <Activity className="h-5 w-5 text-zinc-400" />
+              <h3 className="font-medium text-zinc-50">Recent Activity</h3>
             </div>
           </div>
-          <div className="p-4 space-y-3">
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm text-zinc-400">Total Yield</span>
-              <span className="font-mono text-zinc-100">
-                {financialSummary.yearToDate.totalYield}
-              </span>
-            </div>
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm text-zinc-400">Total Rakeback</span>
-              <span className="font-mono text-amber-400 font-medium">
-                {financialSummary.yearToDate.totalRakeback}
-              </span>
-            </div>
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm text-zinc-400">Effective Rate</span>
-              <span className="font-mono text-zinc-300">
-                {financialSummary.yearToDate.rakebackRate}
-              </span>
-            </div>
-            <div className="pt-3 border-t border-zinc-800 flex justify-between items-baseline">
-              <span className="text-sm text-zinc-400 font-medium">
-                Net Yield (After Rakeback)
-              </span>
-              <span className="font-mono text-emerald-400 font-semibold">
-                {financialSummary.yearToDate.netYield}
-              </span>
+          <div className="p-4">
+            <div className="text-sm text-zinc-500 text-center py-4">
+              No processing data yet. Activity will appear once the pipeline runs.
             </div>
           </div>
         </div>
@@ -548,164 +409,43 @@ export default function SystemOverview() {
             <div>
               <h3 className="font-medium text-zinc-50">Partner Performance</h3>
               <p className="text-sm text-zinc-400 mt-0.5">
-                Rakeback metrics by partner
+                Configured partners and their rakeback rates
               </p>
             </div>
           </div>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-              <TableHead className="text-zinc-400">Partner</TableHead>
-              <TableHead className="text-zinc-400">Type</TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                Rakeback MTD
-              </TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                Rakeback YTD
-              </TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                Wallets
-              </TableHead>
-              <TableHead className="text-zinc-400 text-right">
-                Avg Yield/Wallet
-              </TableHead>
-              <TableHead className="text-zinc-400">Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {partnerPerformance.map((partner, idx) => (
-              <TableRow
-                key={idx}
-                className="border-zinc-800 hover:bg-zinc-800/50"
-              >
-                <TableCell className="font-medium text-zinc-100">
-                  {partner.name}
-                </TableCell>
-                <TableCell>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
-                    {partner.type}
-                  </span>
-                </TableCell>
-                <TableCell className="text-right font-mono text-amber-400">
-                  {partner.rakebackMTD}
-                </TableCell>
-                <TableCell className="text-right font-mono text-amber-400">
-                  {partner.rakebackYTD}
-                </TableCell>
-                <TableCell className="text-right font-mono text-zinc-300">
-                  {partner.walletCount.toLocaleString()}
-                </TableCell>
-                <TableCell className="text-right font-mono text-zinc-400 text-sm">
-                  {partner.avgYieldPerWallet}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={partner.status} />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg overflow-hidden">
-        <div className="p-4 border-b border-zinc-800">
-          <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-zinc-400" />
-            <div>
-              <h3 className="font-medium text-zinc-50">Recent Activity</h3>
-              <p className="text-sm text-zinc-400 mt-0.5">
-                Latest settlements and transactions
-              </p>
-            </div>
+        {partnerPerformance.length === 0 ? (
+          <div className="p-8 text-center text-zinc-500">
+            <Users className="h-8 w-8 mx-auto mb-2 text-zinc-600" />
+            <div>No partners configured yet</div>
+            <div className="text-sm mt-1">Add partners in the Partner Management page</div>
           </div>
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-              <TableHead className="text-zinc-400">Timestamp</TableHead>
-              <TableHead className="text-zinc-400">Type</TableHead>
-              <TableHead className="text-zinc-400">Partner</TableHead>
-              <TableHead className="text-zinc-400 text-right">Amount</TableHead>
-              <TableHead className="text-zinc-400">Block Range</TableHead>
-              <TableHead className="text-zinc-400">Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {recentActivity.map((activity, idx) => (
-              <TableRow
-                key={idx}
-                className="border-zinc-800 hover:bg-zinc-800/50"
-              >
-                <TableCell className="text-zinc-400 text-sm font-mono">
-                  {activity.timestamp}
-                </TableCell>
-                <TableCell className="text-zinc-300 text-sm">
-                  {activity.type}
-                </TableCell>
-                <TableCell className="text-zinc-100 font-medium">
-                  {activity.partner}
-                </TableCell>
-                <TableCell className="text-right font-mono text-emerald-400">
-                  {activity.amount}
-                </TableCell>
-                <TableCell className="font-mono text-zinc-400 text-sm">
-                  {activity.blockRange}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={activity.status} />
-                </TableCell>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
+                <TableHead className="text-zinc-400">Partner</TableHead>
+                <TableHead className="text-zinc-400">Type</TableHead>
+                <TableHead className="text-zinc-400 text-right">Rakeback Rate</TableHead>
+                <TableHead className="text-zinc-400">Status</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* System Health */}
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg overflow-hidden">
-        <div className="p-4 border-b border-zinc-800">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-            <div>
-              <h3 className="font-medium text-zinc-50">System Health</h3>
-              <p className="text-sm text-zinc-400 mt-0.5">
-                Real-time status of all pipeline components
-              </p>
-            </div>
-          </div>
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-              <TableHead className="text-zinc-400">Component</TableHead>
-              <TableHead className="text-zinc-400">Status</TableHead>
-              <TableHead className="text-zinc-400">Last Update</TableHead>
-              <TableHead className="text-zinc-400">Current Metric</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {systemHealth.map((component, idx) => (
-              <TableRow
-                key={idx}
-                className="border-zinc-800 hover:bg-zinc-800/50"
-              >
-                <TableCell className="font-medium text-zinc-100">
-                  {component.component}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={component.status} />
-                </TableCell>
-                <TableCell className="font-mono text-zinc-400 text-sm">
-                  {component.lastUpdate}
-                </TableCell>
-                <TableCell className="text-zinc-300 text-sm">
-                  {component.metric}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {partnerPerformance.map((partner, idx) => (
+                <TableRow key={idx} className="border-zinc-800 hover:bg-zinc-800/50">
+                  <TableCell className="font-medium text-zinc-100">{partner.name}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
+                      {partner.type}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-amber-400">{partner.rakebackRate}</TableCell>
+                  <TableCell><StatusBadge status={partner.status} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </div>
 
       {/* Quick Stats Grid */}
@@ -716,11 +456,9 @@ export default function SystemOverview() {
               <Wallet className="h-5 w-5 text-blue-400" />
             </div>
             <div>
-              <div className="text-xs text-zinc-500 uppercase tracking-wider">
-                Avg Daily Rakeback
-              </div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wider">Pipeline Status</div>
               <div className="text-xl font-semibold text-zinc-100 mt-0.5">
-                131.95 TAO
+                {backendHealth === "healthy" ? "Online" : "Offline"}
               </div>
             </div>
           </div>
@@ -732,11 +470,9 @@ export default function SystemOverview() {
               <CheckCircle2 className="h-5 w-5 text-emerald-400" />
             </div>
             <div>
-              <div className="text-xs text-zinc-500 uppercase tracking-wider">
-                Blocks Processed (24h)
-              </div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wider">System Health</div>
               <div className="text-xl font-semibold text-zinc-100 mt-0.5">
-                7,200
+                {backendHealth === "healthy" ? "All Systems Go" : "Degraded"}
               </div>
             </div>
           </div>
@@ -748,11 +484,11 @@ export default function SystemOverview() {
               <AlertCircle className="h-5 w-5 text-amber-400" />
             </div>
             <div>
-              <div className="text-xs text-zinc-500 uppercase tracking-wider">
-                Pending Settlements
-              </div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wider">Pending Settlements</div>
               <div className="text-xl font-semibold text-zinc-100 mt-0.5">
-                0
+                {financialSummary && parseFloat(financialSummary.totalOutstanding.replace(/[^0-9.]/g, "")) > 0
+                  ? financialSummary.totalOutstanding
+                  : "0"}
               </div>
             </div>
           </div>

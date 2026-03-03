@@ -1,9 +1,0 @@
-# Database Configuration - Local Development
-
-# SQLite for local development (no PostgreSQL needed)
-sqlite_path: data/rakeback.db
-
-# Connection pool settings (used for PostgreSQL, ignored for SQLite)
-pool_size: 5
-pool_timeout: 30
-pool_recycle: 1800
