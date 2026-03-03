@@ -1,0 +1,9 @@
+**/.venv
+**/__pycache__
+**/.git
+**/.env
+**/node_modules
+**/*.pyc
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm

@@ -144,6 +144,64 @@ export interface ConversionDetail {
   allocations: AllocationDetail[];
 }
 
+/** Rakeback ledger entry */
+export interface RakebackLedgerEntry {
+  id: string;
+  periodType: string;
+  periodStart: string;
+  periodEnd: string;
+  participantId: string;
+  participantType: string;
+  validatorHotkey: string;
+  grossDtaoAttributed: number;
+  grossTaoConverted: number;
+  rakebackPercentage: number;
+  taoOwed: number;
+  paymentStatus: string;
+  paymentTxHash: string | null;
+  paymentTimestamp: string | null;
+  completenessFlag: string;
+  blockCount: number;
+  attributionCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Rakeback summary */
+export interface RakebackSummary {
+  totalEntries: number;
+  totalTaoOwed: string;
+  totalTaoPaid: string;
+  totalTaoOutstanding: string;
+  completeEntries: number;
+  incompleteEntries: number;
+}
+
+/** Completeness data from /api/health/completeness */
+export interface CompletenessData {
+  systemMetrics: {
+    blockCoverage: { total: number; complete: number; partial: number; missing: number; percentage: number };
+    yieldData: { total: number; complete: number; partial: number; missing: number; percentage: number };
+    conversionEvents: { total: number; allocated: number; unallocated: number; percentage: number };
+    ledgerEntries: { total: number; complete: number; incomplete: number; percentage: number };
+  };
+  issues: Array<{
+    id: string;
+    type: string;
+    severity: string;
+    description: string;
+    affectedBlocks?: string;
+    detectedAt: string;
+    requiresReview: boolean;
+  }>;
+  recentActivity: Array<{
+    timestamp: string;
+    event: string;
+    details?: string;
+    status: string;
+  }>;
+}
+
 /** Ingestion trigger result */
 export interface IngestionResult {
   runId: string;
@@ -340,14 +398,28 @@ class BackendService {
   /**
    * Get rakeback ledger
    */
-  async getRakebackLedger(partnerId?: string) {
-    let url = API_CONFIG.backend.endpoints.rakeback;
+  async getRakebackLedger(partnerId?: string): Promise<RakebackLedgerEntry[]> {
+    const qp = new URLSearchParams();
+    if (partnerId) qp.append("partner_id", partnerId);
+    const qs = qp.toString() ? `?${qp.toString()}` : "";
+    return this.fetchData<RakebackLedgerEntry[]>(`${API_CONFIG.backend.endpoints.rakeback}${qs}`);
+  }
 
-    if (partnerId) {
-      url += `?partnerId=${partnerId}`;
-    }
+  /**
+   * Get rakeback summary
+   */
+  async getRakebackSummary(partnerId?: string): Promise<RakebackSummary> {
+    const qp = new URLSearchParams();
+    if (partnerId) qp.append("partner_id", partnerId);
+    const qs = qp.toString() ? `?${qp.toString()}` : "";
+    return this.fetchData<RakebackSummary>(`${API_CONFIG.backend.endpoints.rakeback}/summary${qs}`);
+  }
 
-    return this.fetchData(url);
+  /**
+   * Get data completeness metrics
+   */
+  async getCompleteness(): Promise<CompletenessData> {
+    return this.fetchData<CompletenessData>("/api/health/completeness");
   }
 
   /**

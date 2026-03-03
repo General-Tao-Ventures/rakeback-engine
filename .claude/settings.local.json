@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "mcp__jira__jira_get",
-      "mcp__jira__jira_post"
+      "mcp__jira__jira_post",
+      "Bash(ls:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
