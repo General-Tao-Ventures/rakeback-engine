@@ -38,7 +38,7 @@ ValidationError = AttributionValidationError
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
-PROPORTION_PRECISION: Decimal = Decimal("1E-15")
+PROPORTION_PRECISION: Decimal = Decimal("1E-8")
 
 
 class AttributionEngine:
